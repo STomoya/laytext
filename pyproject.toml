@@ -93,7 +93,7 @@ addopts = [
     "--cov-report=xml:reports/coverage.xml",
     "--junitxml=reports/pytest.xml"
 ]
-testpaths = ["tests"]
+testpaths = ["python/tests"]
 
 [tool.coverage.run]
 omit = []
