@@ -1,0 +1,113 @@
+[project]
+name = "laytext"
+dynamic = ["version"]
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Tomoya Sawada", email = "stomoya0110@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.maturin]
+profile = "release"
+manifest-path = "Cargo.toml"
+module-name = "laytext._core"
+python-packages = ["laytext"]
+python-source = "python"
+compatibility = "pypi"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0", "ziglang>=0.16.0"]
+build-backend = "maturin"
+
+[dependency-groups]
+dev = [
+    "maturin[zig]>=1.14.1",
+    "pdfminer-six>=20260107",
+    "pypdfium2>=5.13.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403", "F405"]
+"*.pyi" = ["F401"]
+"python/tests/**/*.py" = ["PLR2004", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "E",
+    "F",
+    "C4",
+    "SIM",
+    "W",
+    "NPY",
+    "PIE",
+    "PL",
+    "PYI",
+    "RUF",
+    "TRY",
+    "D",
+    "D401",
+    "D413",
+]
+ignore = [
+    "C408",    # dict() statement. I like dict().
+    "PLR0911", # Too many return.
+    "PLR0912", # Too many branches.
+    "PLR0913", # Too many args.
+    "PLR0917", # Too many positional args.
+    "TRY002",  # Create Exception class.
+    "TRY003",  # Long message outside exception class.
+    "NPY002",  # numpy.random.Generator. Most torch programs use np.random.seed().
+    "PLR0402", # import torch.nn as nn -> from torch import nn.
+    "SIM108",  # if: a=...; else: a=... -> a = ... if else ...;. I like using if-else in some cases.
+    "B905",    # assert ... in ... -> if ... not in ...: raise AssertionError(...). I like using assert in some cases.
+    "PYI021",  # docstring in .pyi.
+]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.pytest.ini_options]
+addopts = [
+    "-vv",
+    "-s",
+    "-ra",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=xml:reports/coverage.xml",
+    "--junitxml=reports/pytest.xml"
+]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = []
+
+[tool.coverage.report]
+exclude_also = [
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.ty.src]
+include = [
+    "python",
+    "tests",
+]
+
+[tool.ty.terminal]
+output-format = "concise"
