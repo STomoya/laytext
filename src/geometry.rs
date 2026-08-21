@@ -140,6 +140,20 @@ mod tests {
     }
 
     #[test]
+    fn voverlap_amount_matches_pdfminer_formula() {
+        let a = rect(0.0, 0.0, 6.0, 10.0);
+        let b = rect(0.0, 5.0, 6.0, 15.0);
+        assert_eq!(a.voverlap(&b), 5.0);
+    }
+
+    #[test]
+    fn voverlap_zero_when_disjoint() {
+        let a = rect(0.0, 0.0, 6.0, 10.0);
+        let b = rect(0.0, 20.0, 6.0, 30.0);
+        assert_eq!(a.voverlap(&b), 0.0);
+    }
+
+    #[test]
     fn vdistance_zero_when_overlapping() {
         let a = rect(0.0, 0.0, 6.0, 10.0);
         let b = rect(0.0, 5.0, 6.0, 15.0);
