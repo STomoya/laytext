@@ -1,19 +1,33 @@
+pub mod geometry;
+pub mod lines;
+pub mod params;
+pub mod types;
+
 use pyo3::prelude::*;
 
-pub mod geometry;
-pub mod types;
-pub mod params;
-pub mod lines;
+use geometry::Rect;
+use lines::group_lines as group_lines_impl;
+use params::Params;
+use types::{Char, FontInfo, Line};
 
-/// A Python module implemented in Rust. The name of this module must match
-/// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
-/// import the module.
+#[pyfunction]
+#[pyo3(name = "group_lines")]
+fn group_lines_py(chars: Vec<Char>, params: Params) -> Vec<Line> {
+    group_lines_impl(&chars, &params)
+}
+
 #[pymodule]
 mod _core {
-    use pyo3::prelude::*;
-
-    #[pyfunction]
-    fn hello_from_bin() -> String {
-        "Hello from laytext!".to_string()
-    }
+    #[pymodule_export]
+    use crate::Rect;
+    #[pymodule_export]
+    use crate::FontInfo;
+    #[pymodule_export]
+    use crate::Char;
+    #[pymodule_export]
+    use crate::Line;
+    #[pymodule_export]
+    use crate::Params;
+    #[pymodule_export]
+    use crate::group_lines_py;
 }
