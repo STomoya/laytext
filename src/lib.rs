@@ -16,6 +16,32 @@ fn group_lines_py(chars: Vec<Char>, params: Params) -> Vec<Line> {
     group_lines_impl(&chars, &params)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::group_lines_py;
+    use crate::geometry::Rect;
+    use crate::lines::group_lines;
+    use crate::params::Params;
+    use crate::types::Char;
+
+    #[test]
+    fn group_lines_py_delegates_to_lines_group_lines() {
+        let chars = vec![Char {
+            bbox: Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 6.0,
+                y1: 10.0,
+            },
+            text: 'a',
+            font: None,
+        }];
+        let params = Params::default();
+        let expected = group_lines(&chars, &params);
+        assert_eq!(group_lines_py(chars.clone(), params.clone()), expected);
+    }
+}
+
 #[pymodule]
 mod _core {
     #[pymodule_export]

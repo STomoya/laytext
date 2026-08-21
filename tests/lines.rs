@@ -21,7 +21,7 @@ fn empty_input_produces_no_lines() {
 fn single_char_produces_single_line() {
     let params = Params::default();
     let a = ch(0.0, 0.0, 6.0, 10.0);
-    let lines = group_lines(&[a.clone()], &params);
+    let lines = group_lines(std::slice::from_ref(&a), &params);
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0].chars, vec![a]);
     assert!(lines[0].upright);
@@ -82,8 +82,10 @@ fn wide_but_mergeable_gap_inserts_word_margin_space() {
 
 #[test]
 fn zero_word_margin_disables_space_insertion() {
-    let mut params = Params::default();
-    params.word_margin = 0.0;
+    let params = Params {
+        word_margin: 0.0,
+        ..Default::default()
+    };
     let a = ch(0.0, 0.0, 6.0, 10.0);
     let b = ch(9.0, 0.0, 15.0, 10.0); // same gap as the word-margin-space test above
     let lines = group_lines(&[a.clone(), b.clone()], &params);
@@ -121,8 +123,10 @@ fn three_close_chars_extend_an_already_open_horizontal_line() {
 
 #[test]
 fn three_close_chars_extend_an_already_open_vertical_line() {
-    let mut params = Params::default();
-    params.detect_vertical = true;
+    let params = Params {
+        detect_vertical: true,
+        ..Default::default()
+    };
     let top = ch(0.0, 20.0, 6.0, 30.0);
     let mid = ch(0.0, 10.5, 6.0, 19.5);
     let bottom = ch(0.0, 0.0, 6.0, 10.0);
@@ -133,8 +137,10 @@ fn three_close_chars_extend_an_already_open_vertical_line() {
 
 #[test]
 fn vertical_wide_but_mergeable_gap_inserts_word_margin_space() {
-    let mut params = Params::default();
-    params.detect_vertical = true;
+    let params = Params {
+        detect_vertical: true,
+        ..Default::default()
+    };
     let top = ch(0.0, 20.0, 6.0, 30.0);
     let bottom = ch(0.0, 5.0, 6.0, 15.0); // 5pt gap: > word_margin(0.1)*10=1.0, < char_margin(2.0)*10=20
     let lines = group_lines(&[top.clone(), bottom.clone()], &params);

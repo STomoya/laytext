@@ -76,6 +76,33 @@ mod tests {
     }
 
     #[test]
+    fn py_new_assigns_all_fields_from_arguments() {
+        let r = Rect::py_new(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(r, rect(1.0, 2.0, 3.0, 4.0));
+    }
+
+    #[test]
+    fn rect_extracts_from_python_object() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let obj = pyo3::Py::new(py, rect(0.0, 0.0, 1.0, 1.0)).unwrap();
+            let extracted: Rect = obj.extract(py).unwrap();
+            assert_eq!(extracted, rect(0.0, 0.0, 1.0, 1.0));
+        });
+    }
+
+    #[test]
+    fn rect_extraction_fails_for_wrong_python_type() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::{PyAnyMethods, PyString};
+            let obj = PyString::new(py, "not a rect");
+            let extracted: Result<Rect, _> = obj.extract();
+            assert!(extracted.is_err());
+        });
+    }
+
+    #[test]
     fn width_and_height() {
         let r = rect(1.0, 2.0, 5.0, 9.0);
         assert_eq!(r.width(), 4.0);
