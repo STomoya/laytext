@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub x0: f64,

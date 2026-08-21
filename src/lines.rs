@@ -23,7 +23,13 @@ impl LineBuilder {
             Orientation::Horizontal => f64::INFINITY,
             Orientation::Vertical => f64::NEG_INFINITY,
         };
-        LineBuilder { orientation, word_margin, chars: Vec::new(), bbox: None, prev_edge }
+        LineBuilder {
+            orientation,
+            word_margin,
+            chars: Vec::new(),
+            bbox: None,
+            prev_edge,
+        }
     }
 
     fn push(&mut self, c: Char) {
@@ -35,14 +41,24 @@ impl LineBuilder {
             };
             if gap_open {
                 let space_bbox = match self.orientation {
-                    Orientation::Horizontal => {
-                        Rect { x0: self.prev_edge, y0: c.bbox.y0, x1: c.bbox.x0, y1: c.bbox.y1 }
-                    }
-                    Orientation::Vertical => {
-                        Rect { x0: c.bbox.x0, y0: c.bbox.y1, x1: c.bbox.x1, y1: self.prev_edge }
-                    }
+                    Orientation::Horizontal => Rect {
+                        x0: self.prev_edge,
+                        y0: c.bbox.y0,
+                        x1: c.bbox.x0,
+                        y1: c.bbox.y1,
+                    },
+                    Orientation::Vertical => Rect {
+                        x0: c.bbox.x0,
+                        y0: c.bbox.y1,
+                        x1: c.bbox.x1,
+                        y1: self.prev_edge,
+                    },
                 };
-                self.chars.push(Char { bbox: space_bbox, text: ' ', font: None });
+                self.chars.push(Char {
+                    bbox: space_bbox,
+                    text: ' ',
+                    font: None,
+                });
             }
         }
         self.prev_edge = match self.orientation {
@@ -63,7 +79,12 @@ impl LineBuilder {
 
     fn finish(self) -> Line {
         Line {
-            bbox: self.bbox.unwrap_or(Rect { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0 }),
+            bbox: self.bbox.unwrap_or(Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 0.0,
+                y1: 0.0,
+            }),
             upright: matches!(self.orientation, Orientation::Horizontal),
             chars: self.chars,
         }

@@ -19,6 +19,7 @@ def test_char_default_font_is_none():
 def test_char_accepts_font_info():
     font = FontInfo(name='Helvetica', size=10.0, bold=True, italic=False)
     c = Char(Rect(0.0, 0.0, 1.0, 1.0), 'a', font)
+    assert c.font is not None
     assert c.font.name == 'Helvetica'
     assert c.font.bold is True
 
@@ -51,4 +52,4 @@ def test_group_lines_returns_line_objects_with_expected_shape():
 
 def test_group_lines_rejects_wrong_argument_type():
     with pytest.raises(TypeError):
-        group_lines('not a list', Params())
+        group_lines('not a list', Params())  # ty: ignore[invalid-argument-type]

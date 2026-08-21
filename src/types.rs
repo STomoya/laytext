@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 
 use crate::geometry::Rect;
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontInfo {
     pub name: Option<String>,
@@ -15,12 +15,22 @@ pub struct FontInfo {
 impl FontInfo {
     #[new]
     #[pyo3(signature = (name=None, size=None, bold=None, italic=None))]
-    fn py_new(name: Option<String>, size: Option<f64>, bold: Option<bool>, italic: Option<bool>) -> Self {
-        FontInfo { name, size, bold, italic }
+    fn py_new(
+        name: Option<String>,
+        size: Option<f64>,
+        bold: Option<bool>,
+        italic: Option<bool>,
+    ) -> Self {
+        FontInfo {
+            name,
+            size,
+            bold,
+            italic,
+        }
     }
 }
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Char {
     pub bbox: Rect,
@@ -37,7 +47,7 @@ impl Char {
     }
 }
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line {
     pub bbox: Rect,
@@ -49,6 +59,10 @@ pub struct Line {
 impl Line {
     #[new]
     fn py_new(bbox: Rect, upright: bool, chars: Vec<Char>) -> Self {
-        Line { bbox, upright, chars }
+        Line {
+            bbox,
+            upright,
+            chars,
+        }
     }
 }

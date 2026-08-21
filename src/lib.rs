@@ -19,15 +19,15 @@ fn group_lines_py(chars: Vec<Char>, params: Params) -> Vec<Line> {
 #[pymodule]
 mod _core {
     #[pymodule_export]
-    use crate::Rect;
+    use crate::Char;
     #[pymodule_export]
     use crate::FontInfo;
-    #[pymodule_export]
-    use crate::Char;
     #[pymodule_export]
     use crate::Line;
     #[pymodule_export]
     use crate::Params;
+    #[pymodule_export]
+    use crate::Rect;
     #[pymodule_export]
     use crate::group_lines_py;
 }

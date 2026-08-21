@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Params {
     pub char_margin: f64,
@@ -38,13 +38,24 @@ impl Params {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn py_new(
-        char_margin: f64, line_overlap: f64, line_margin: f64, word_margin: f64,
-        column_gap_min: Option<f64>, row_gap_min: Option<f64>, full_width_threshold: f64,
+        char_margin: f64,
+        line_overlap: f64,
+        line_margin: f64,
+        word_margin: f64,
+        column_gap_min: Option<f64>,
+        row_gap_min: Option<f64>,
+        full_width_threshold: f64,
         detect_vertical: bool,
     ) -> Self {
         Params {
-            char_margin, line_overlap, line_margin, word_margin,
-            column_gap_min, row_gap_min, full_width_threshold, detect_vertical,
+            char_margin,
+            line_overlap,
+            line_margin,
+            word_margin,
+            column_gap_min,
+            row_gap_min,
+            full_width_threshold,
+            detect_vertical,
         }
     }
 }
@@ -62,6 +73,7 @@ mod tests {
         assert_eq!(p.word_margin, 0.1);
         assert_eq!(p.column_gap_min, None);
         assert_eq!(p.row_gap_min, None);
+        assert_eq!(p.full_width_threshold, 0.9);
         assert!(!p.detect_vertical);
     }
 }

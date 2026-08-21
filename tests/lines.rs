@@ -4,7 +4,11 @@ use _core::params::Params;
 use _core::types::Char;
 
 fn ch(x0: f64, y0: f64, x1: f64, y1: f64) -> Char {
-    Char { bbox: Rect { x0, y0, x1, y1 }, text: 'x', font: None }
+    Char {
+        bbox: Rect { x0, y0, x1, y1 },
+        text: 'x',
+        font: None,
+    }
 }
 
 #[test]
@@ -31,7 +35,15 @@ fn close_chars_on_same_row_merge_into_one_line() {
     let lines = group_lines(&[a.clone(), b.clone()], &params);
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0].chars, vec![a, b]);
-    assert_eq!(lines[0].bbox, Rect { x0: 0.0, y0: 0.0, x1: 12.5, y1: 10.0 });
+    assert_eq!(
+        lines[0].bbox,
+        Rect {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 12.5,
+            y1: 10.0
+        }
+    );
 }
 
 #[test]
@@ -57,7 +69,26 @@ fn wide_but_mergeable_gap_inserts_word_margin_space() {
     assert_eq!(lines[0].chars[1].text, ' ');
     assert_eq!(lines[0].chars[2], b);
     // the synthetic space must not widen the line's bbox beyond the real chars
-    assert_eq!(lines[0].bbox, Rect { x0: 0.0, y0: 0.0, x1: 15.0, y1: 10.0 });
+    assert_eq!(
+        lines[0].bbox,
+        Rect {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 15.0,
+            y1: 10.0
+        }
+    );
+}
+
+#[test]
+fn zero_word_margin_disables_space_insertion() {
+    let mut params = Params::default();
+    params.word_margin = 0.0;
+    let a = ch(0.0, 0.0, 6.0, 10.0);
+    let b = ch(9.0, 0.0, 15.0, 10.0); // same gap as the word-margin-space test above
+    let lines = group_lines(&[a.clone(), b.clone()], &params);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].chars, vec![a, b]);
 }
 
 #[test]
@@ -75,6 +106,55 @@ fn vertical_text_grouped_only_when_detect_vertical_enabled() {
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0].chars, vec![top, bottom]);
     assert!(!lines[0].upright);
+}
+
+#[test]
+fn three_close_chars_extend_an_already_open_horizontal_line() {
+    let params = Params::default();
+    let a = ch(0.0, 0.0, 6.0, 10.0);
+    let b = ch(6.5, 0.0, 12.5, 10.0);
+    let c = ch(13.0, 0.0, 19.0, 10.0);
+    let lines = group_lines(&[a.clone(), b.clone(), c.clone()], &params);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].chars, vec![a, b, c]);
+}
+
+#[test]
+fn three_close_chars_extend_an_already_open_vertical_line() {
+    let mut params = Params::default();
+    params.detect_vertical = true;
+    let top = ch(0.0, 20.0, 6.0, 30.0);
+    let mid = ch(0.0, 10.5, 6.0, 19.5);
+    let bottom = ch(0.0, 0.0, 6.0, 10.0);
+    let lines = group_lines(&[top.clone(), mid.clone(), bottom.clone()], &params);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].chars, vec![top, mid, bottom]);
+}
+
+#[test]
+fn vertical_wide_but_mergeable_gap_inserts_word_margin_space() {
+    let mut params = Params::default();
+    params.detect_vertical = true;
+    let top = ch(0.0, 20.0, 6.0, 30.0);
+    let bottom = ch(0.0, 5.0, 6.0, 15.0); // 5pt gap: > word_margin(0.1)*10=1.0, < char_margin(2.0)*10=20
+    let lines = group_lines(&[top.clone(), bottom.clone()], &params);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].chars.len(), 3);
+    assert_eq!(lines[0].chars[0], top);
+    assert_eq!(lines[0].chars[1].text, ' ');
+    assert_eq!(lines[0].chars[2], bottom);
+}
+
+#[test]
+fn orientation_mismatch_closes_open_line_without_extending_it() {
+    let params = Params::default();
+    let a = ch(0.0, 0.0, 6.0, 10.0);
+    let b = ch(6.5, 0.0, 12.5, 10.0); // opens a horizontal line with a
+    let c = ch(6.5, -6.0, 12.5, -1.0); // below b, not horizontally aligned with it
+    let lines = group_lines(&[a.clone(), b.clone(), c.clone()], &params);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].chars, vec![a, b]);
+    assert_eq!(lines[1].chars, vec![c]);
 }
 
 #[test]
