@@ -103,8 +103,7 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
         .collect()
 }
 
-/// Walks a `Region` tree and merges each leaf's lines into blocks
-/// independently (`group_blocks`, per region), flattening the results.
+/// Runs `group_blocks` independently per leaf and flattens the results.
 /// Since block-merging is always scoped to a single leaf, this is the only
 /// entry point that guarantees merges never cross a region boundary.
 pub fn group_blocks_in_region(region: Region, params: &Params) -> Vec<Block> {

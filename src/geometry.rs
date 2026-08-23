@@ -76,8 +76,7 @@ impl Rect {
     }
 }
 
-/// Folds an iterator of rects into their bounding-box union. Empty input
-/// returns a zero rect.
+/// Empty input returns a zero rect.
 pub fn union_all(rects: impl IntoIterator<Item = Rect>) -> Rect {
     let mut iter = rects.into_iter();
     let first = match iter.next() {
