@@ -20,6 +20,8 @@ class FontInfo:
 
 class Char:
     bbox: Rect
+    # Always a single Unicode scalar. `str` is the closest available stub
+    # type; the constructor raises ValueError for multi-character strings.
     text: str
     font: FontInfo | None
     def __init__(self, bbox: Rect, text: str, font: FontInfo | None = None) -> None: ...

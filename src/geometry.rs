@@ -65,6 +65,15 @@ impl Rect {
             (self.y0 - other.y1).abs().min((self.y1 - other.y0).abs())
         }
     }
+
+    pub fn union(&self, other: &Rect) -> Rect {
+        Rect {
+            x0: self.x0.min(other.x0),
+            y0: self.y0.min(other.y0),
+            x1: self.x1.max(other.x1),
+            y1: self.y1.max(other.y1),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -192,5 +201,12 @@ mod tests {
         let a = rect(0.0, 0.0, 6.0, 10.0);
         let b = rect(0.0, 13.0, 6.0, 20.0);
         assert_eq!(a.vdistance(&b), 3.0);
+    }
+
+    #[test]
+    fn union_covers_the_bounding_box_of_both_rects() {
+        let a = rect(0.0, 0.0, 6.0, 10.0);
+        let b = rect(3.0, 5.0, 20.0, 30.0);
+        assert_eq!(a.union(&b), rect(0.0, 0.0, 20.0, 30.0));
     }
 }

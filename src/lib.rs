@@ -13,7 +13,7 @@ use types::{Char, FontInfo, Line};
 #[pyfunction]
 #[pyo3(name = "group_lines")]
 fn group_lines_py(chars: Vec<Char>, params: Params) -> Vec<Line> {
-    group_lines_impl(&chars, &params)
+    group_lines_impl(chars, &params)
 }
 
 #[cfg(test)]
@@ -37,8 +37,8 @@ mod tests {
             font: None,
         }];
         let params = Params::default();
-        let expected = group_lines(&chars, &params);
-        assert_eq!(group_lines_py(chars.clone(), params.clone()), expected);
+        let expected = group_lines(chars.clone(), &params);
+        assert_eq!(group_lines_py(chars, params), expected);
     }
 }
 

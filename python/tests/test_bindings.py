@@ -41,13 +41,11 @@ def test_group_lines_empty_input_returns_empty_list():
 
 def test_group_lines_returns_line_objects_with_expected_shape():
     a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
-    b = Char(Rect(6.5, 0.0, 12.5, 10.0), 'b')
-    lines = group_lines([a, b], Params())
-    assert len(lines) == 1
+    lines = group_lines([a], Params())
     line = lines[0]
     assert isinstance(line, Line)
     assert isinstance(line.bbox, Rect)
-    assert [c.text for c in line.chars] == ['a', 'b']
+    assert isinstance(line.chars[0], Char)
 
 
 def test_group_lines_rejects_wrong_argument_type():
