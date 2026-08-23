@@ -35,7 +35,10 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
     let is_full = |l: &Line| l.bbox.width() >= threshold;
 
     let full_count = lines.iter().filter(|l| is_full(l)).count();
-    if full_count == 0 || full_count == lines.len() {
+    let narrow_count = lines.len() - full_count;
+    // Full-width lines must stay a minority, or an ordinary paragraph's
+    // shorter wrapped last line reads as a "title" and gets split off.
+    if full_count == 0 || narrow_count == 0 || full_count > narrow_count {
         return None;
     }
 
@@ -98,9 +101,10 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
         };
     }
 
-    if let Some(gap_min) = params.column_gap_min
-        && let Some((left, right)) = try_axis_cut_x(&lines, gap_min)
-    {
+    let column_gap_min = params.column_gap_min.expect(
+        "Params.column_gap_min is required (non-None) for v1; None is reserved for future auto-tuning",
+    );
+    if let Some((left, right)) = try_axis_cut_x(&lines, column_gap_min) {
         return Region::Split {
             bbox,
             orientation: Orientation::Vertical,
@@ -108,9 +112,10 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
         };
     }
 
-    if let Some(gap_min) = params.row_gap_min
-        && let Some((top, bottom)) = try_axis_cut_y(&lines, gap_min)
-    {
+    let row_gap_min = params.row_gap_min.expect(
+        "Params.row_gap_min is required (non-None) for v1; None is reserved for future auto-tuning",
+    );
+    if let Some((top, bottom)) = try_axis_cut_y(&lines, row_gap_min) {
         return Region::Split {
             bbox,
             orientation: Orientation::Horizontal,

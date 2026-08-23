@@ -120,33 +120,21 @@ fn stacked_rows_with_a_clear_gap_split_horizontally_top_to_bottom() {
 }
 
 #[test]
-fn none_column_gap_min_disables_vertical_cuts() {
+#[should_panic(expected = "column_gap_min")]
+fn none_column_gap_min_panics() {
     let params = params_with_gaps(None, Some(10.0));
     let left = line(rect(0.0, 0.0, 100.0, 10.0));
-    let right = line(rect(200.0, 0.0, 300.0, 10.0)); // huge gap, but column cuts disabled
-    let region = segment(vec![left.clone(), right.clone()], &params);
-    assert_eq!(
-        region,
-        Region::Leaf {
-            bbox: rect(0.0, 0.0, 300.0, 10.0),
-            lines: vec![left, right],
-        }
-    );
+    let right = line(rect(200.0, 0.0, 300.0, 10.0));
+    segment(vec![left, right], &params);
 }
 
 #[test]
-fn none_row_gap_min_disables_horizontal_cuts() {
+#[should_panic(expected = "row_gap_min")]
+fn none_row_gap_min_panics() {
     let params = params_with_gaps(Some(10.0), None);
     let top = line(rect(0.0, 220.0, 100.0, 230.0));
-    let bottom = line(rect(0.0, 0.0, 100.0, 10.0)); // huge gap, but row cuts disabled
-    let region = segment(vec![top.clone(), bottom.clone()], &params);
-    assert_eq!(
-        region,
-        Region::Leaf {
-            bbox: rect(0.0, 0.0, 100.0, 230.0),
-            lines: vec![top, bottom],
-        }
-    );
+    let bottom = line(rect(0.0, 0.0, 100.0, 10.0));
+    segment(vec![top, bottom], &params);
 }
 
 #[test]
@@ -241,6 +229,30 @@ fn full_width_title_forces_a_horizontal_split_above_two_columns() {
         }
         other => panic!("expected a horizontal split, got {other:?}"),
     }
+}
+
+#[test]
+fn ordinary_paragraph_with_a_short_wrapped_last_line_is_not_split() {
+    // regression: full-width lines outnumbering the wrapped last line must
+    // not force a split (see full_width_title_... for the real title case).
+    let params = Params {
+        column_gap_min: Some(10.0),
+        row_gap_min: Some(10.0),
+        full_width_threshold: 0.9,
+        ..Default::default()
+    };
+    let l1 = line(rect(0.0, 30.0, 395.0, 40.0));
+    let l2 = line(rect(0.0, 18.0, 395.0, 28.0));
+    let l3 = line(rect(0.0, 6.0, 395.0, 16.0));
+    let l4 = line(rect(0.0, -6.0, 150.0, 4.0));
+    let region = segment(vec![l1.clone(), l2.clone(), l3.clone(), l4.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Leaf {
+            bbox: rect(0.0, -6.0, 395.0, 40.0),
+            lines: vec![l1, l2, l3, l4],
+        }
+    );
 }
 
 #[test]
