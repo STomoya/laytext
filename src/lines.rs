@@ -33,7 +33,7 @@ impl LineBuilder {
     }
 
     fn push(&mut self, c: Char) {
-        if self.word_margin > 0.0 {
+        if self.word_margin != 0.0 {
             let margin = self.word_margin * c.bbox.width().max(c.bbox.height());
             let gap_open = match self.orientation {
                 Orientation::Horizontal => self.prev_edge < c.bbox.x0 - margin,
@@ -67,12 +67,7 @@ impl LineBuilder {
         };
         self.bbox = Some(match self.bbox {
             None => c.bbox,
-            Some(b) => Rect {
-                x0: b.x0.min(c.bbox.x0),
-                y0: b.y0.min(c.bbox.y0),
-                x1: b.x1.max(c.bbox.x1),
-                y1: b.y1.max(c.bbox.y1),
-            },
+            Some(b) => b.union(&c.bbox),
         });
         self.chars.push(c);
     }
@@ -91,77 +86,78 @@ impl LineBuilder {
     }
 }
 
-fn halign(a: &Char, b: &Char, params: &Params) -> bool {
-    a.bbox.is_voverlap(&b.bbox)
-        && a.bbox.height().min(b.bbox.height()) * params.line_overlap < a.bbox.voverlap(&b.bbox)
-        && a.bbox.hdistance(&b.bbox) < a.bbox.width().max(b.bbox.width()) * params.char_margin
+fn halign(a: &Rect, b: &Rect, params: &Params) -> bool {
+    a.is_voverlap(b)
+        && a.height().min(b.height()) * params.line_overlap < a.voverlap(b)
+        && a.hdistance(b) < a.width().max(b.width()) * params.char_margin
 }
 
-fn valign(a: &Char, b: &Char, params: &Params) -> bool {
+fn valign(a: &Rect, b: &Rect, params: &Params) -> bool {
     params.detect_vertical
-        && a.bbox.is_hoverlap(&b.bbox)
-        && a.bbox.width().min(b.bbox.width()) * params.line_overlap < a.bbox.hoverlap(&b.bbox)
-        && a.bbox.vdistance(&b.bbox) < a.bbox.height().max(b.bbox.height()) * params.char_margin
+        && a.is_hoverlap(b)
+        && a.width().min(b.width()) * params.line_overlap < a.hoverlap(b)
+        && a.vdistance(b) < a.height().max(b.height()) * params.char_margin
 }
 
 /// Groups a page's chars into lines. Direct port of pdfminer's
 /// `LTLayoutContainer.group_objects`. Input must already be in roughly
 /// reading order (pdfminer relies on PDF content-stream order); this
 /// function does not sort.
-pub fn group_lines(chars: &[Char], params: &Params) -> Vec<Line> {
+pub fn group_lines(chars: Vec<Char>, params: &Params) -> Vec<Line> {
     let mut result = Vec::new();
     let mut open: Option<LineBuilder> = None;
-    let mut prev: Option<&Char> = None;
+    // The most recently seen char that has not yet been moved into `open`.
+    let mut pending: Option<Char> = None;
+    let mut prev_bbox: Option<Rect> = None;
 
     for c in chars {
-        if let Some(obj0) = prev {
-            let ha = halign(obj0, c, params);
-            let va = valign(obj0, c, params);
+        let c_bbox = c.bbox;
+        if let Some(pb) = prev_bbox {
+            let ha = halign(&pb, &c_bbox, params);
+            let va = valign(&pb, &c_bbox, params);
 
-            let extended = match &mut open {
+            let extends = match &open {
                 Some(builder) => match builder.orientation {
-                    Orientation::Horizontal if ha => {
-                        builder.push(c.clone());
-                        true
-                    }
-                    Orientation::Vertical if va => {
-                        builder.push(c.clone());
-                        true
-                    }
-                    _ => false,
+                    Orientation::Horizontal => ha,
+                    Orientation::Vertical => va,
                 },
                 None => false,
             };
 
-            if !extended {
-                if let Some(builder) = open.take() {
-                    result.push(builder.finish());
-                } else if va && !ha {
-                    let mut builder = LineBuilder::new(Orientation::Vertical, params.word_margin);
-                    builder.push(obj0.clone());
-                    builder.push(c.clone());
-                    open = Some(builder);
-                } else if ha && !va {
-                    let mut builder = LineBuilder::new(Orientation::Horizontal, params.word_margin);
-                    builder.push(obj0.clone());
-                    builder.push(c.clone());
-                    open = Some(builder);
-                } else {
-                    let mut builder = LineBuilder::new(Orientation::Horizontal, params.word_margin);
-                    builder.push(obj0.clone());
-                    result.push(builder.finish());
-                }
+            if extends {
+                open.as_mut().unwrap().push(c);
+                pending = None;
+            } else if let Some(builder) = open.take() {
+                result.push(builder.finish());
+                pending = Some(c);
+            } else if va && !ha {
+                let mut builder = LineBuilder::new(Orientation::Vertical, params.word_margin);
+                builder.push(pending.take().unwrap());
+                builder.push(c);
+                open = Some(builder);
+            } else if ha && !va {
+                let mut builder = LineBuilder::new(Orientation::Horizontal, params.word_margin);
+                builder.push(pending.take().unwrap());
+                builder.push(c);
+                open = Some(builder);
+            } else {
+                let mut builder = LineBuilder::new(Orientation::Horizontal, params.word_margin);
+                builder.push(pending.take().unwrap());
+                result.push(builder.finish());
+                pending = Some(c);
             }
+        } else {
+            pending = Some(c);
         }
-        prev = Some(c);
+        prev_bbox = Some(c_bbox);
     }
 
     match open {
         Some(builder) => result.push(builder.finish()),
         None => {
-            if let Some(obj0) = prev {
+            if let Some(obj0) = pending {
                 let mut builder = LineBuilder::new(Orientation::Horizontal, params.word_margin);
-                builder.push(obj0.clone());
+                builder.push(obj0);
                 result.push(builder.finish());
             }
         }
