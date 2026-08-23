@@ -67,6 +67,13 @@ impl Line {
     }
 }
 
+// Not yet exposed via PyO3: M3 wires bindings once Page/assemble land.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub bbox: Rect,
+    pub lines: Vec<Line>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Char, FontInfo, Line};
