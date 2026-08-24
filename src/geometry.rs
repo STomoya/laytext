@@ -98,7 +98,7 @@ pub fn union_all(rects: impl IntoIterator<Item = Rect>) -> Rect {
 /// `min_gap` wide, in ascending order.
 pub fn find_gaps(intervals: &[(f64, f64)], min_gap: f64) -> Vec<(f64, f64)> {
     let mut sorted: Vec<(f64, f64)> = intervals.to_vec();
-    sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let mut runs: Vec<(f64, f64)> = Vec::new();
     for iv in sorted {
@@ -320,5 +320,10 @@ mod tests {
             super::find_gaps(&[(0.0, 5.0), (10.0, 15.0), (20.0, 25.0)], 2.0),
             vec![(5.0, 10.0), (15.0, 20.0)]
         );
+    }
+
+    #[test]
+    fn find_gaps_nan_coordinate_does_not_panic() {
+        let _ = super::find_gaps(&[(f64::NAN, 5.0), (0.0, 3.0)], 1.0);
     }
 }
