@@ -1,19 +1,17 @@
 use crate::blocks::group_blocks;
-use crate::geometry::union_all;
 use crate::params::Params;
 use crate::segmentation::{Region, segment};
 use crate::types::{Block, Line, Page};
 
-fn assemble_region(region: Region, params: &Params) -> Vec<Block> {
+pub fn assemble_region(region: Region, params: &Params) -> Vec<Block> {
     match region {
         Region::Leaf { lines, .. } => {
             let mut blocks = group_blocks(lines, params);
             blocks.sort_by(|a, b| {
                 b.bbox
                     .y1
-                    .partial_cmp(&a.bbox.y1)
-                    .unwrap()
-                    .then(a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap())
+                    .total_cmp(&a.bbox.y1)
+                    .then(a.bbox.x0.total_cmp(&b.bbox.x0))
             });
             blocks
         }
@@ -30,8 +28,10 @@ fn assemble_region(region: Region, params: &Params) -> Vec<Block> {
 /// row/full-width cut), blocks within a region sorted top-to-bottom then
 /// left-to-right.
 pub fn assemble(lines: Vec<Line>, params: &Params) -> Page {
-    let bbox = union_all(lines.iter().map(|l| l.bbox));
     let region = segment(lines, params);
+    let bbox = match &region {
+        Region::Leaf { bbox, .. } | Region::Split { bbox, .. } => *bbox,
+    };
     let blocks = assemble_region(region, params);
     Page { bbox, blocks }
 }

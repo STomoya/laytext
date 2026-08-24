@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::geometry::{Rect, union_all};
 use crate::params::Params;
-use crate::segmentation::Region;
 use crate::types::{Block, Line};
 
 fn find(parent: &mut [usize], x: usize) -> usize {
@@ -101,17 +100,4 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
             }
         })
         .collect()
-}
-
-/// Runs `group_blocks` independently per leaf and flattens the results.
-/// Since block-merging is always scoped to a single leaf, this is the only
-/// entry point that guarantees merges never cross a region boundary.
-pub fn group_blocks_in_region(region: Region, params: &Params) -> Vec<Block> {
-    match region {
-        Region::Leaf { lines, .. } => group_blocks(lines, params),
-        Region::Split { children, .. } => children
-            .into_iter()
-            .flat_map(|child| group_blocks_in_region(child, params))
-            .collect(),
-    }
 }

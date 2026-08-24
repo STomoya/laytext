@@ -1,5 +1,5 @@
-use _core::assemble::assemble;
-use _core::blocks::{group_blocks, group_blocks_in_region};
+use _core::assemble::{assemble, assemble_region};
+use _core::blocks::group_blocks;
 use _core::geometry::Rect;
 use _core::params::Params;
 use _core::segmentation::segment;
@@ -55,7 +55,7 @@ fn region_scoped_merge_keeps_the_title_and_both_columns_separate() {
     };
     let (title, col_a, col_b) = multi_column_page();
     let region = segment(vec![title.clone(), col_a.clone(), col_b.clone()], &params);
-    let blocks = group_blocks_in_region(region, &params);
+    let blocks = assemble_region(region, &params);
 
     assert_eq!(blocks.len(), 3, "no cross-gutter or cross-title merge");
     for expected in [vec![title], vec![col_a], vec![col_b]] {
