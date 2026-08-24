@@ -105,28 +105,47 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
     Some(bands.into_iter().map(|b| segment(b, params)).collect())
 }
 
-fn try_axis_cut_x(lines: &[Line], gap_min: f64) -> Option<(Vec<Line>, Vec<Line>)> {
+/// An axis cut candidate: the two partitions plus the gap width that
+/// separates them, so callers can compare candidates across axes and pick
+/// whichever gap is actually widest.
+struct AxisCut {
+    left_or_top: Vec<Line>,
+    right_or_bottom: Vec<Line>,
+    gap_width: f64,
+}
+
+fn try_axis_cut_x(lines: &[Line], gap_min: f64) -> Option<AxisCut> {
     let intervals: Vec<(f64, f64)> = lines.iter().map(|l| (l.bbox.x0, l.bbox.x1)).collect();
     let gap = widest_gap(find_gaps(&intervals, gap_min))?;
     let (left, right): (Vec<Line>, Vec<Line>) =
         lines.iter().cloned().partition(|l| l.bbox.x1 <= gap.0);
-    Some((left, right))
+    Some(AxisCut {
+        left_or_top: left,
+        right_or_bottom: right,
+        gap_width: gap.1 - gap.0,
+    })
 }
 
-fn try_axis_cut_y(lines: &[Line], gap_min: f64) -> Option<(Vec<Line>, Vec<Line>)> {
+fn try_axis_cut_y(lines: &[Line], gap_min: f64) -> Option<AxisCut> {
     let intervals: Vec<(f64, f64)> = lines.iter().map(|l| (l.bbox.y0, l.bbox.y1)).collect();
     let gap = widest_gap(find_gaps(&intervals, gap_min))?;
     let (top, bottom): (Vec<Line>, Vec<Line>) =
         lines.iter().cloned().partition(|l| l.bbox.y0 >= gap.1);
-    Some((top, bottom))
+    Some(AxisCut {
+        left_or_top: top,
+        right_or_bottom: bottom,
+        gap_width: gap.1 - gap.0,
+    })
 }
 
 /// Recursively partitions a page's lines into a `Region` tree via an X-Y
 /// cut: a forced horizontal split around any full-width line (title/header/
-/// footer) mixed with narrower lines, then a whitespace-gap vertical
-/// (column) cut, then a whitespace-gap horizontal (row) cut, tried in that
-/// order at every level. A region that matches none of these becomes a
-/// `Leaf`, ready for per-region line-to-block merging.
+/// footer) mixed with narrower lines, then a whitespace-gap cut on whichever
+/// axis has the wider candidate gap (column vs. row), so a page with e.g.
+/// two stacked bands that each happen to also be two-column splits on the
+/// band boundary first rather than always defaulting to columns. A region
+/// that matches none of these becomes a `Leaf`, ready for per-region
+/// line-to-block merging.
 pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
     let bbox = union_all(lines.iter().map(|l| l.bbox));
 
@@ -149,26 +168,41 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
     let column_gap_min = params
         .column_gap_min
         .unwrap_or_else(|| median_height() * AUTO_COLUMN_GAP_FACTOR);
-    if let Some((left, right)) = try_axis_cut_x(&lines, column_gap_min) {
-        return Region::Split {
-            bbox,
-            orientation: Orientation::Vertical,
-            children: vec![segment(left, params), segment(right, params)],
-        };
-    }
-
     let row_gap_min = params
         .row_gap_min
         .unwrap_or_else(|| median_height() * AUTO_ROW_GAP_FACTOR);
-    if let Some((top, bottom)) = try_axis_cut_y(&lines, row_gap_min) {
-        return Region::Split {
+
+    let x_cut = try_axis_cut_x(&lines, column_gap_min);
+    let y_cut = try_axis_cut_y(&lines, row_gap_min);
+
+    let prefer_x = match (&x_cut, &y_cut) {
+        (Some(x), Some(y)) => x.gap_width >= y.gap_width,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (None, None) => return Region::Leaf { bbox, lines },
+    };
+
+    if prefer_x {
+        let x = x_cut.unwrap();
+        Region::Split {
+            bbox,
+            orientation: Orientation::Vertical,
+            children: vec![
+                segment(x.left_or_top, params),
+                segment(x.right_or_bottom, params),
+            ],
+        }
+    } else {
+        let y = y_cut.unwrap();
+        Region::Split {
             bbox,
             orientation: Orientation::Horizontal,
-            children: vec![segment(top, params), segment(bottom, params)],
-        };
+            children: vec![
+                segment(y.left_or_top, params),
+                segment(y.right_or_bottom, params),
+            ],
+        }
     }
-
-    Region::Leaf { bbox, lines }
 }
 
 #[cfg(test)]
