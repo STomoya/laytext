@@ -22,6 +22,21 @@ fn group_lines_py(chars: Vec<Char>, params: Params) -> Vec<Line> {
 }
 
 #[pyfunction]
+#[pyo3(name = "group_lines_document")]
+fn group_lines_document_py(
+    py: Python<'_>,
+    pages: Vec<Vec<Char>>,
+    params: Params,
+) -> Vec<Vec<Line>> {
+    py.detach(|| {
+        pages
+            .into_par_iter()
+            .map(|chars| group_lines_impl(chars, &params))
+            .collect()
+    })
+}
+
+#[pyfunction]
 #[pyo3(name = "analyze_page")]
 fn analyze_page_py(
     py: Python<'_>,
@@ -53,7 +68,7 @@ fn analyze_document_py(py: Python<'_>, pages: Vec<PageInput>, params: Params) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{analyze_document_py, analyze_page_py, group_lines_py};
+    use super::{analyze_document_py, analyze_page_py, group_lines_document_py, group_lines_py};
     use crate::assemble::assemble;
     use crate::geometry::Rect;
     use crate::lines::group_lines;
@@ -79,6 +94,33 @@ mod tests {
         let params = Params::default();
         let expected = group_lines(chars.clone(), &params);
         assert_eq!(group_lines_py(chars, params), expected);
+    }
+
+    #[test]
+    fn group_lines_document_py_returns_one_line_group_per_page_in_order() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let params = Params::default();
+            let pages = vec![vec![a_char()], vec![]];
+            let expected: Vec<_> = pages
+                .iter()
+                .cloned()
+                .map(|chars| group_lines_py(chars, params.clone()))
+                .collect();
+
+            assert_eq!(group_lines_document_py(py, pages, params), expected);
+        });
+    }
+
+    #[test]
+    fn group_lines_document_py_empty_batch_returns_empty_vec() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            assert_eq!(
+                group_lines_document_py(py, vec![], Params::default()),
+                Vec::<Vec<crate::types::Line>>::new()
+            );
+        });
     }
 
     #[test]
@@ -184,6 +226,8 @@ mod _core {
     use crate::analyze_document_py;
     #[pymodule_export]
     use crate::analyze_page_py;
+    #[pymodule_export]
+    use crate::group_lines_document_py;
     #[pymodule_export]
     use crate::group_lines_py;
 }
