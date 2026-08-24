@@ -28,21 +28,6 @@ impl Default for Params {
     }
 }
 
-impl Params {
-    /// `column_gap_min`/`row_gap_min` are required (non-`None`) for v1
-    /// (`None` is reserved for future auto-tuning); segmentation panics if
-    /// missing, so callers must check this before running the pipeline.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.column_gap_min.is_none() {
-            return Err("Params.column_gap_min is required (got None)".to_string());
-        }
-        if self.row_gap_min.is_none() {
-            return Err("Params.row_gap_min is required (got None)".to_string());
-        }
-        Ok(())
-    }
-}
-
 #[pymethods]
 impl Params {
     #[new]
@@ -125,35 +110,5 @@ mod tests {
             let extracted: Result<Params, _> = obj.extract();
             assert!(extracted.is_err());
         });
-    }
-
-    #[test]
-    fn validate_ok_when_both_gap_mins_are_some() {
-        let p = Params {
-            column_gap_min: Some(10.0),
-            row_gap_min: Some(10.0),
-            ..Default::default()
-        };
-        assert!(p.validate().is_ok());
-    }
-
-    #[test]
-    fn validate_rejects_missing_column_gap_min() {
-        let p = Params {
-            column_gap_min: None,
-            row_gap_min: Some(10.0),
-            ..Default::default()
-        };
-        assert!(p.validate().unwrap_err().contains("column_gap_min"));
-    }
-
-    #[test]
-    fn validate_rejects_missing_row_gap_min() {
-        let p = Params {
-            column_gap_min: Some(10.0),
-            row_gap_min: None,
-            ..Default::default()
-        };
-        assert!(p.validate().unwrap_err().contains("row_gap_min"));
     }
 }

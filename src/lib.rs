@@ -6,7 +6,6 @@ pub mod params;
 pub mod segmentation;
 pub mod types;
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use assemble::assemble as assemble_impl;
@@ -30,23 +29,17 @@ fn analyze_page_py(
     width: f64,
     height: f64,
     params: Params,
-) -> PyResult<Page> {
-    params.validate().map_err(PyValueError::new_err)?;
-    Ok(py.detach(|| {
+) -> Page {
+    py.detach(|| {
         let lines = group_lines_impl(chars, &params);
         assemble_impl(lines, &params, width, height)
-    }))
+    })
 }
 
 #[pyfunction]
 #[pyo3(name = "analyze_document")]
-fn analyze_document_py(
-    py: Python<'_>,
-    pages: Vec<PageInput>,
-    params: Params,
-) -> PyResult<Vec<Page>> {
-    params.validate().map_err(PyValueError::new_err)?;
-    Ok(py.detach(|| {
+fn analyze_document_py(py: Python<'_>, pages: Vec<PageInput>, params: Params) -> Vec<Page> {
+    py.detach(|| {
         pages
             .into_par_iter()
             .map(|page| {
@@ -55,7 +48,7 @@ fn analyze_document_py(
                 assemble_impl(lines, &params, width, height)
             })
             .collect()
-    }))
+    })
 }
 
 #[cfg(test)]
@@ -100,19 +93,19 @@ mod tests {
             };
             let lines = group_lines(chars.clone(), &params);
             let expected = assemble(lines, &params, 100.0, 200.0);
-            assert_eq!(
-                analyze_page_py(py, chars, 100.0, 200.0, params).unwrap(),
-                expected
-            );
+            assert_eq!(analyze_page_py(py, chars, 100.0, 200.0, params), expected);
         });
     }
 
     #[test]
-    fn analyze_page_py_rejects_missing_gap_params() {
+    fn analyze_page_py_accepts_none_gap_params() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            let result = analyze_page_py(py, vec![a_char()], 100.0, 200.0, Params::default());
-            assert!(result.is_err());
+            let params = Params::default();
+            let chars = vec![a_char()];
+            let lines = group_lines(chars.clone(), &params);
+            let expected = assemble(lines, &params, 100.0, 200.0);
+            assert_eq!(analyze_page_py(py, chars, 100.0, 200.0, params), expected);
         });
     }
 
@@ -140,10 +133,10 @@ mod tests {
             let expected: Vec<_> = pages
                 .iter()
                 .cloned()
-                .map(|p| analyze_page_py(py, p.chars, p.width, p.height, params.clone()).unwrap())
+                .map(|p| analyze_page_py(py, p.chars, p.width, p.height, params.clone()))
                 .collect();
 
-            assert_eq!(analyze_document_py(py, pages, params).unwrap(), expected);
+            assert_eq!(analyze_document_py(py, pages, params), expected);
         });
     }
 
@@ -156,16 +149,15 @@ mod tests {
                 row_gap_min: Some(10.0),
                 ..Default::default()
             };
-            assert_eq!(analyze_document_py(py, vec![], params).unwrap(), vec![]);
+            assert_eq!(analyze_document_py(py, vec![], params), vec![]);
         });
     }
 
     #[test]
-    fn analyze_document_py_rejects_missing_gap_params() {
+    fn analyze_document_py_accepts_none_gap_params() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            let result = analyze_document_py(py, vec![], Params::default());
-            assert!(result.is_err());
+            assert_eq!(analyze_document_py(py, vec![], Params::default()), vec![]);
         });
     }
 }

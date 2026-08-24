@@ -120,21 +120,71 @@ fn stacked_rows_with_a_clear_gap_split_horizontally_top_to_bottom() {
 }
 
 #[test]
-#[should_panic(expected = "column_gap_min")]
-fn none_column_gap_min_panics() {
+fn none_column_gap_min_derives_threshold_from_median_line_height_and_splits() {
+    // line height is 10.0 everywhere here, so the derived threshold is 20.0.
     let params = params_with_gaps(None, Some(10.0));
     let left = line(rect(0.0, 0.0, 100.0, 10.0));
-    let right = line(rect(200.0, 0.0, 300.0, 10.0));
-    segment(vec![left, right], &params);
+    let right = line(rect(125.0, 0.0, 225.0, 10.0)); // 25pt gap: exceeds derived 20.0
+    let region = segment(vec![left.clone(), right.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 225.0, 10.0),
+            orientation: Orientation::Vertical,
+            children: vec![
+                Region::Leaf {
+                    bbox: left.bbox,
+                    lines: vec![left],
+                },
+                Region::Leaf {
+                    bbox: right.bbox,
+                    lines: vec![right],
+                },
+            ],
+        }
+    );
 }
 
 #[test]
-#[should_panic(expected = "row_gap_min")]
-fn none_row_gap_min_panics() {
-    let params = params_with_gaps(Some(10.0), None);
-    let top = line(rect(0.0, 220.0, 100.0, 230.0));
-    let bottom = line(rect(0.0, 0.0, 100.0, 10.0));
-    segment(vec![top, bottom], &params);
+fn none_column_gap_min_derived_threshold_keeps_narrower_gap_a_single_leaf() {
+    // line height is 10.0 everywhere here, so the derived threshold is 20.0.
+    let params = params_with_gaps(None, Some(10.0));
+    let left = line(rect(0.0, 0.0, 100.0, 10.0));
+    let right = line(rect(115.0, 0.0, 215.0, 10.0)); // 15pt gap: below derived 20.0
+    let region = segment(vec![left.clone(), right.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Leaf {
+            bbox: rect(0.0, 0.0, 215.0, 10.0),
+            lines: vec![left, right],
+        }
+    );
+}
+
+#[test]
+fn none_row_gap_min_derives_threshold_from_median_line_height_and_splits() {
+    // line height is 10.0 everywhere here, so the derived threshold is 15.0.
+    let params = params_with_gaps(Some(1000.0), None); // column cut disabled
+    let top = line(rect(0.0, 120.0, 100.0, 130.0));
+    let bottom = line(rect(0.0, 0.0, 100.0, 10.0)); // 110pt gap: exceeds derived 15.0
+    let region = segment(vec![top.clone(), bottom.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 100.0, 130.0),
+            orientation: Orientation::Horizontal,
+            children: vec![
+                Region::Leaf {
+                    bbox: top.bbox,
+                    lines: vec![top],
+                },
+                Region::Leaf {
+                    bbox: bottom.bbox,
+                    lines: vec![bottom],
+                },
+            ],
+        }
+    );
 }
 
 #[test]
@@ -332,6 +382,67 @@ fn alternating_full_and_narrow_lines_within_one_paragraph_are_not_split() {
         region,
         Region::Leaf {
             bbox: rect(0.0, -6.0, 95.0, 70.0),
+            lines,
+        }
+    );
+}
+
+#[test]
+fn repeated_heading_and_body_pairs_are_not_force_split() {
+    // regression: a document with several short inline headings, each
+    // immediately followed by its own multi-line paragraph (e.g. structured
+    // abstracts: 目的/方法/結果/考察), bands into a long alternating chain
+    // (narrow heading, full body, narrow heading, full body, ...) where the
+    // body bands aren't singletons, so the pre-existing "all bands are
+    // singleton" guard doesn't suppress it - each heading was getting torn
+    // away from its own paragraph into a separate region. A real title/
+    // body/footer page bands into 3 groups (see
+    // title_two_column_body_and_footer_still_splits_into_three_bands); a
+    // long repeating chain like this one is the same paragraph-noise
+    // signature as the single-line-chain case, just with wider bands, so it
+    // must also fall through undisturbed to the gap-based cuts (or a leaf).
+    let params = Params {
+        column_gap_min: Some(10.0),
+        row_gap_min: Some(10.0),
+        full_width_threshold: 0.9,
+        ..Default::default()
+    };
+    // all left-aligned at x0=0.0, stacked with 1pt gaps (below row_gap_min).
+    // width 95 >= 0.9*95 -> "full"; width 40 < 85.5 -> "narrow". Each
+    // repeat is heading(narrow) + 2 full-width lines + a wrapped narrow
+    // last line, keeping full_count == narrow_count (6 each) so the
+    // majority guard doesn't reject it before banding is even tried.
+    let heading1 = line(rect(0.0, 100.0, 40.0, 109.0));
+    let body1a = line(rect(0.0, 90.0, 95.0, 99.0));
+    let body1b = line(rect(0.0, 80.0, 95.0, 89.0));
+    let last1 = line(rect(0.0, 70.0, 40.0, 79.0));
+    let heading2 = line(rect(0.0, 60.0, 40.0, 69.0));
+    let body2a = line(rect(0.0, 50.0, 95.0, 59.0));
+    let body2b = line(rect(0.0, 40.0, 95.0, 49.0));
+    let last2 = line(rect(0.0, 30.0, 40.0, 39.0));
+    let heading3 = line(rect(0.0, 20.0, 40.0, 29.0));
+    let body3a = line(rect(0.0, 10.0, 95.0, 19.0));
+    let body3b = line(rect(0.0, 0.0, 95.0, 9.0));
+    let last3 = line(rect(0.0, -10.0, 40.0, -1.0));
+    let lines = vec![
+        heading1.clone(),
+        body1a.clone(),
+        body1b.clone(),
+        last1.clone(),
+        heading2.clone(),
+        body2a.clone(),
+        body2b.clone(),
+        last2.clone(),
+        heading3.clone(),
+        body3a.clone(),
+        body3b.clone(),
+        last3.clone(),
+    ];
+    let region = segment(lines.clone(), &params);
+    assert_eq!(
+        region,
+        Region::Leaf {
+            bbox: rect(0.0, -10.0, 95.0, 109.0),
             lines,
         }
     );

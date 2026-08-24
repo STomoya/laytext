@@ -21,17 +21,43 @@ pub enum Region {
     },
 }
 
+/// `column_gap_min`/`row_gap_min` fallback multipliers, applied to the
+/// median line height of the region being segmented when a threshold isn't
+/// given explicitly. Geometry-only (no font metrics), per the project's
+/// threshold-fallback rule; approximates the corpus-tuned fixed defaults
+/// (20pt/15pt against ~10pt body text) used in `validation/`.
+const AUTO_COLUMN_GAP_FACTOR: f64 = 2.0;
+const AUTO_ROW_GAP_FACTOR: f64 = 1.5;
+
+fn median_line_height(lines: &[Line]) -> f64 {
+    let mut heights: Vec<f64> = lines.iter().map(|l| l.bbox.height()).collect();
+    heights.sort_by(f64::total_cmp);
+    let mid = heights.len() / 2;
+    if heights.len().is_multiple_of(2) {
+        (heights[mid - 1] + heights[mid]) / 2.0
+    } else {
+        heights[mid]
+    }
+}
+
 fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
     gaps.into_iter()
         .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
 }
 
+/// Above this band count, banding no longer resembles a page-level title/
+/// [column-body]/footer boundary (at most 3 bands in every real shape this
+/// heuristic targets) and instead signals repeating in-flow structure, like
+/// a series of short inline headings each followed by its own paragraph -
+/// content noise, not a section boundary.
+const MAX_FORCED_BANDS: usize = 3;
+
 /// Splits `lines` into consecutive top-to-bottom bands whose lines share the
 /// same "is full width relative to `bbox`" status, and recursively segments
 /// each band. Returns `None` when every line has the same status (nothing to
-/// force apart), or when banding produces nothing but single-line bands
-/// (see the check below) - the signature of justified-text noise rather
-/// than a real section boundary.
+/// force apart), when banding produces nothing but single-line bands (the
+/// signature of justified-text noise rather than a real section boundary),
+/// or when it produces more than `MAX_FORCED_BANDS` (see its doc comment).
 fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<Vec<Region>> {
     let threshold = params.full_width_threshold * bbox.width();
     let is_full = |l: &Line| l.bbox.width() >= threshold;
@@ -70,8 +96,9 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
     // line-by-line instead, producing a chain where every band is a single
     // line — that's noise, not a section boundary, so leave it to the
     // column/row whitespace-gap cuts (or a plain leaf) rather than forcing
-    // it apart here.
-    if bands.iter().all(|b| b.len() == 1) {
+    // it apart here. A long chain of repeating narrow/full bands is the same
+    // signature at a coarser grain (see MAX_FORCED_BANDS).
+    if bands.len() > MAX_FORCED_BANDS || bands.iter().all(|b| b.len() == 1) {
         return None;
     }
 
@@ -115,9 +142,13 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
         };
     }
 
-    let column_gap_min = params.column_gap_min.expect(
-        "Params.column_gap_min is required (non-None) for v1; None is reserved for future auto-tuning",
-    );
+    let mut median_height_cache: Option<f64> = None;
+    let mut median_height =
+        || *median_height_cache.get_or_insert_with(|| median_line_height(&lines));
+
+    let column_gap_min = params
+        .column_gap_min
+        .unwrap_or_else(|| median_height() * AUTO_COLUMN_GAP_FACTOR);
     if let Some((left, right)) = try_axis_cut_x(&lines, column_gap_min) {
         return Region::Split {
             bbox,
@@ -126,9 +157,9 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
         };
     }
 
-    let row_gap_min = params.row_gap_min.expect(
-        "Params.row_gap_min is required (non-None) for v1; None is reserved for future auto-tuning",
-    );
+    let row_gap_min = params
+        .row_gap_min
+        .unwrap_or_else(|| median_height() * AUTO_ROW_GAP_FACTOR);
     if let Some((top, bottom)) = try_axis_cut_y(&lines, row_gap_min) {
         return Region::Split {
             bbox,
@@ -142,12 +173,68 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 
 #[cfg(test)]
 mod tests {
-    use super::widest_gap;
+    use super::{median_line_height, widest_gap};
 
     #[test]
     fn widest_gap_nan_width_does_not_panic() {
         let result = widest_gap(vec![(0.0, 5.0), (0.0, f64::NAN)]);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn median_line_height_odd_count_returns_middle_value() {
+        use crate::types::{Char, Line};
+
+        let heights = [5.0, 20.0, 10.0];
+        let lines: Vec<Line> = heights
+            .iter()
+            .map(|&h| {
+                let bbox = crate::geometry::Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 10.0,
+                    y1: h,
+                };
+                Line {
+                    bbox,
+                    upright: true,
+                    chars: vec![Char {
+                        bbox,
+                        text: 'x',
+                        font: None,
+                    }],
+                }
+            })
+            .collect();
+        assert_eq!(median_line_height(&lines), 10.0);
+    }
+
+    #[test]
+    fn median_line_height_even_count_returns_average_of_middle_two() {
+        use crate::types::{Char, Line};
+
+        let heights = [10.0, 30.0];
+        let lines: Vec<Line> = heights
+            .iter()
+            .map(|&h| {
+                let bbox = crate::geometry::Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 10.0,
+                    y1: h,
+                };
+                Line {
+                    bbox,
+                    upright: true,
+                    chars: vec![Char {
+                        bbox,
+                        text: 'x',
+                        font: None,
+                    }],
+                }
+            })
+            .collect();
+        assert_eq!(median_line_height(&lines), 20.0);
     }
 
     #[test]

@@ -88,9 +88,9 @@ def test_analyze_page_rejects_wrong_argument_type():
         analyze_page('not a list', 100.0, 200.0, Params())  # ty: ignore[invalid-argument-type]
 
 
-def test_analyze_page_rejects_missing_gap_params():
-    with pytest.raises(ValueError, match='column_gap_min'):
-        analyze_page([], 100.0, 200.0, Params())
+def test_analyze_page_accepts_none_gap_params():
+    page = analyze_page([], 100.0, 200.0, Params())
+    assert page.blocks == []
 
 
 def test_page_input_round_trips_chars_and_dimensions():
@@ -119,6 +119,5 @@ def test_analyze_document_rejects_wrong_argument_type():
         analyze_document('not a list', Params())  # ty: ignore[invalid-argument-type]
 
 
-def test_analyze_document_rejects_missing_gap_params():
-    with pytest.raises(ValueError, match='column_gap_min'):
-        analyze_document([], Params())
+def test_analyze_document_accepts_none_gap_params():
+    assert analyze_document([], Params()) == []
