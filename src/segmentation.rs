@@ -32,7 +32,12 @@ const AUTO_ROW_GAP_FACTOR: f64 = 1.5;
 fn median_line_height(lines: &[Line]) -> f64 {
     let mut heights: Vec<f64> = lines.iter().map(|l| l.bbox.height()).collect();
     heights.sort_by(f64::total_cmp);
-    heights[heights.len() / 2]
+    let mid = heights.len() / 2;
+    if heights.len().is_multiple_of(2) {
+        (heights[mid - 1] + heights[mid]) / 2.0
+    } else {
+        heights[mid]
+    }
 }
 
 fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
@@ -137,9 +142,13 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
         };
     }
 
+    let mut median_height_cache: Option<f64> = None;
+    let mut median_height =
+        || *median_height_cache.get_or_insert_with(|| median_line_height(&lines));
+
     let column_gap_min = params
         .column_gap_min
-        .unwrap_or_else(|| median_line_height(&lines) * AUTO_COLUMN_GAP_FACTOR);
+        .unwrap_or_else(|| median_height() * AUTO_COLUMN_GAP_FACTOR);
     if let Some((left, right)) = try_axis_cut_x(&lines, column_gap_min) {
         return Region::Split {
             bbox,
@@ -150,7 +159,7 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 
     let row_gap_min = params
         .row_gap_min
-        .unwrap_or_else(|| median_line_height(&lines) * AUTO_ROW_GAP_FACTOR);
+        .unwrap_or_else(|| median_height() * AUTO_ROW_GAP_FACTOR);
     if let Some((top, bottom)) = try_axis_cut_y(&lines, row_gap_min) {
         return Region::Split {
             bbox,
@@ -198,6 +207,34 @@ mod tests {
             })
             .collect();
         assert_eq!(median_line_height(&lines), 10.0);
+    }
+
+    #[test]
+    fn median_line_height_even_count_returns_average_of_middle_two() {
+        use crate::types::{Char, Line};
+
+        let heights = [10.0, 30.0];
+        let lines: Vec<Line> = heights
+            .iter()
+            .map(|&h| {
+                let bbox = crate::geometry::Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 10.0,
+                    y1: h,
+                };
+                Line {
+                    bbox,
+                    upright: true,
+                    chars: vec![Char {
+                        bbox,
+                        text: 'x',
+                        font: None,
+                    }],
+                }
+            })
+            .collect();
+        assert_eq!(median_line_height(&lines), 20.0);
     }
 
     #[test]
