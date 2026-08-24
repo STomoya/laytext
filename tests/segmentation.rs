@@ -293,3 +293,103 @@ fn consecutive_full_width_lines_band_together() {
         other => panic!("expected a horizontal split, got {other:?}"),
     }
 }
+
+#[test]
+fn alternating_full_and_narrow_lines_within_one_paragraph_are_not_split() {
+    // regression: a justified paragraph whose wrapped line widths happen to
+    // straddle full_width_threshold line-by-line (common in real body text)
+    // must not be torn into a chain of single-line bands. full_count(3) <=
+    // narrow_count(4) still passes the majority guard, but banding these
+    // produces 7 alternating one-line bands, not the 2-band title/body
+    // shape every other force-split case here produces.
+    let params = Params {
+        column_gap_min: Some(10.0),
+        row_gap_min: Some(10.0),
+        full_width_threshold: 0.9,
+        ..Default::default()
+    };
+    // all left-aligned at x0=0.0 (no column gap), stacked with 1pt gaps
+    // (below row_gap_min) so only the full-width heuristic is in play.
+    // width 95 >= 0.9*95 -> "full"; width 80 < 85.5 -> "narrow".
+    let l1 = line(rect(0.0, 60.0, 80.0, 70.0)); // narrow
+    let l2 = line(rect(0.0, 49.0, 95.0, 59.0)); // full
+    let l3 = line(rect(0.0, 38.0, 80.0, 48.0)); // narrow
+    let l4 = line(rect(0.0, 27.0, 95.0, 37.0)); // full
+    let l5 = line(rect(0.0, 16.0, 80.0, 26.0)); // narrow
+    let l6 = line(rect(0.0, 5.0, 95.0, 15.0)); // full
+    let l7 = line(rect(0.0, -6.0, 80.0, 4.0)); // narrow
+    let lines = vec![
+        l1.clone(),
+        l2.clone(),
+        l3.clone(),
+        l4.clone(),
+        l5.clone(),
+        l6.clone(),
+        l7.clone(),
+    ];
+    let region = segment(lines.clone(), &params);
+    assert_eq!(
+        region,
+        Region::Leaf {
+            bbox: rect(0.0, -6.0, 95.0, 70.0),
+            lines,
+        }
+    );
+}
+
+#[test]
+fn title_two_column_body_and_footer_still_splits_into_three_bands() {
+    // regression: bands.len() != 2 must not reject every band count above
+    // 2 - only the all-singleton-band chain that signals paragraph noise
+    // (see alternating_full_and_narrow_lines_...). A real title/body/footer
+    // page bands into 3 groups (title, [left,right], footer), and the
+    // middle band has more than one line, so this must still force-split;
+    // otherwise the title/footer's full-width bboxes swallow the column
+    // gap in try_axis_cut_x and the whole page collapses into one leaf,
+    // merging the left and right columns together.
+    let params = Params {
+        column_gap_min: Some(15.0),
+        row_gap_min: Some(20.0), // wider than any band-to-band gap below
+        full_width_threshold: 0.9,
+        ..Default::default()
+    };
+    let title = line(rect(0.0, 15.0, 220.0, 25.0)); // full width, 5pt gap to body
+    let left = line(rect(0.0, 0.0, 100.0, 10.0)); // narrow, 20pt gap to right
+    let right = line(rect(120.0, 0.0, 220.0, 10.0)); // narrow, 12pt gap to footer
+    let footer = line(rect(0.0, -12.0, 220.0, -3.0)); // full width
+    let region = segment(
+        vec![title.clone(), left.clone(), right.clone(), footer.clone()],
+        &params,
+    );
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, -12.0, 220.0, 25.0),
+            orientation: Orientation::Horizontal,
+            children: vec![
+                Region::Leaf {
+                    bbox: title.bbox,
+                    lines: vec![title],
+                },
+                Region::Split {
+                    bbox: rect(0.0, 0.0, 220.0, 10.0),
+                    orientation: Orientation::Vertical,
+                    children: vec![
+                        Region::Leaf {
+                            bbox: left.bbox,
+                            lines: vec![left],
+                        },
+                        Region::Leaf {
+                            bbox: right.bbox,
+                            lines: vec![right],
+                        },
+                    ],
+                },
+                Region::Leaf {
+                    bbox: footer.bbox,
+                    lines: vec![footer],
+                },
+            ],
+        }
+    );
+}
