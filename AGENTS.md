@@ -16,7 +16,7 @@ algorithm cannot.
 - Parallelism: `rayon` (data-parallel across pages)
 - Build tool: `maturin` (>= 1.9.4)
 - Python env/tooling: `uv` (run, `uvx` for ad-hoc tools), `ruff` (lint/format), `ty` (type checking)
-- Platform / deployment target: pip-installable wheel, Linux/macOS/Windows <!-- assumption: no platform constraint stated; standard maturin multi-platform wheel matrix assumed -->
+- Platform / deployment target: pip-installable wheel, Linux only (x86_64 + aarch64 glibc, cross-compiled via zig — see `scripts/build.sh`)
 - License: Apache 2.0
 
 ## Architecture
@@ -58,6 +58,8 @@ laytext/
     compare_pdfminer.py   # suite — runs pdfminer.six itself (Python-only)
                            # to compare output on real-data corpus, plus
                            # DPI-tolerance checks and perf benchmark
+    visualize_page.py     # renders a page's detected boxes over the PDF
+                           # for manual visual inspection
 ```
 
 ## Commands
