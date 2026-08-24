@@ -50,13 +50,19 @@ Per page:
 
 1. **Char → Line** — group input char boxes into text lines.
 2. **Region segmentation** — recursively partition the page into rectangular
-   regions via an X-Y cut, using line boxes as the segmentation input. This
-   is the multi-column-handling stage.
+   regions via an X-Y cut, using line boxes as the segmentation input. A
+   forced horizontal split around a full-width band (title/header/footer)
+   takes priority when present; otherwise whichever axis — column or row —
+   has the wider candidate whitespace gap at that recursion level wins the
+   cut, so a page whose stacked bands are each also multi-column doesn't
+   default to splitting into columns first. This is the multi-column-
+   handling stage.
 3. **Line → Block** — within each leaf region independently, agglomeratively
    merge lines into blocks. Merging never crosses a region boundary.
-4. **Reading-order assembly** — walk the region tree in cut order (full-width
-   splits before column splits, left-to-right within a column split) to
-   assign a `reading_order` index to every block.
+4. **Reading-order assembly** — walk the region tree in the order `segment`
+   produced it (forced full-width bands top-to-bottom; a column split
+   left-to-right; a row split top-to-bottom) to assign a `reading_order`
+   index to every block.
 
 Stage 1 is essentially the existing pdfminer `group_objects` logic ported
 directly. Stages 2 and 4 are new. Stage 3 is pdfminer's `group_textboxes`
@@ -119,7 +125,8 @@ pipeline may require `FontInfo` to be present — see §6.
   line-overlap logic).
 - **`segmentation`** — recursive X-Y cut producing a region tree from line
   boxes. Owns the full-width-line special case (title/header/footer
-  detection that forces a horizontal cut).
+  detection that forces a horizontal cut) and the column-vs-row tie-break
+  (whichever axis has the wider whitespace gap wins, see §3).
 - **`blocks`** — line → block agglomerative merge (port of pdfminer
   `group_textboxes`), operating on a single region's lines.
 - **`assemble`** — walks the region tree + per-region blocks to produce the
@@ -175,8 +182,8 @@ extends pdfminer's `LAParams`:
 | `line_overlap` | min vertical overlap fraction to consider two chars same line |
 | `line_margin` | max gap to merge lines into the same block, within a region |
 | `word_margin` | inserts inferred word-space chars during line assembly |
-| `column_gap_min` | `Option<f64>` — min horizontal whitespace gap width to trigger a column (vertical) cut; required for now (auto-detect on `None` reserved for a future version, see §12) |
-| `row_gap_min` | `Option<f64>` — min vertical whitespace gap to trigger a horizontal cut; same `Option` reservation as above |
+| `column_gap_min` | `Option<f64>` — min horizontal whitespace gap width to trigger a column (vertical) cut; `None` auto-derives the threshold from the region's median line height (see §12) |
+| `row_gap_min` | `Option<f64>` — min vertical whitespace gap to trigger a horizontal cut; same auto-derivation as above on `None` |
 | `full_width_threshold` | fraction of region width a line must span to be treated as a full-width element (forces horizontal cut) |
 | `detect_vertical` | enable vertical (top-to-bottom) text handling |
 
@@ -207,6 +214,13 @@ Each page's `chars` is a list of simple records: bbox + text + optional font
 fields — matching whatever pypdfium2 (or another extractor) provides. The
 caller assembles all pages up front (streaming/chunked batches are also
 fine — see §10 — but the API shape is document-level, not per-page).
+
+A lower-level `group_lines(chars, params) -> list[Line]` and its
+document-batched counterpart `group_lines_document(pages, params) ->
+list[list[Line]]` are also exposed, for callers that only need stage 1
+(char → line grouping) without region segmentation, block-merge, or
+reading-order assembly. `group_lines_document` parallelizes across pages
+the same way `analyze_document` does.
 
 ## 9. Validation strategy
 
@@ -343,14 +357,16 @@ dependency on each other.
   distance-based merge cannot bridge a column gutter regardless. Revisit
   only if real-data validation (§9) surfaces merge-quality issues (e.g.
   paragraph/indentation handling) that region-scoping alone doesn't fix.
-- **`column_gap_min` / `row_gap_min` tuning**: fixed, user-supplied values
-  for the initial implementation — no auto-tuning yet. To keep this
-  switchable without a later redesign, declare these fields as `Option<f64>`
-  in `Params` (§7) where `None` is reserved to mean "auto-detect" in a
-  future version; a concrete value is required for now. Auto-tuning is
-  deferred until real-data validation (§9) shows fixed thresholds actually
-  failing across documents with materially different gutter widths — design
-  the heuristic against that observed data rather than guessing upfront.
+- **`column_gap_min` / `row_gap_min` tuning**: `Option<f64>` in `Params`
+  (§7). An explicit value always overrides auto-detection. On `None`,
+  `segment()` (`src/segmentation.rs`) derives the threshold from the
+  current region's median line height — geometry-only, no font metrics —
+  multiplied by a fixed factor per axis (2.0× for columns, 1.5× for rows),
+  recomputed at each recursion level so nested regions with different text
+  sizes get locally appropriate thresholds. These factors approximate the
+  corpus-tuned fixed defaults (20pt/15pt against ~10pt body text) used in
+  `validation/`; revisit them if real-data validation (§9) shows them
+  failing across documents with materially different gutter widths.
 
 ## 13. Open questions
 

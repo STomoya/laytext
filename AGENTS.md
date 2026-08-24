@@ -22,10 +22,15 @@ algorithm cannot.
 ## Architecture
 
 Per-page pipeline: char boxes → line grouping → region segmentation (X-Y
-cut, handles multi-column) → line→block merge (scoped per region, never
-crosses a region boundary) → reading-order assembly. The document-level
-entry point batches all pages into one call, releases the GIL, and
-processes pages in parallel via `rayon` (pages share no state).
+cut: a forced full-width band split takes priority; otherwise whichever
+axis — column or row — has the wider whitespace gap wins, handles
+multi-column) → line→block merge (scoped per region, never crosses a
+region boundary) → reading-order assembly. The document-level entry point
+batches all pages into one call, releases the GIL, and processes pages in
+parallel via `rayon` (pages share no state). A lower-level `group_lines`/
+`group_lines_document` entry point also exists for callers that only need
+line grouping (no segmentation/block-merge/assembly), with the same
+per-document parallel-across-pages shape as `analyze_document`.
 
 ```
 laytext/
@@ -45,12 +50,10 @@ laytext/
     segmentation.rs
     blocks.rs
     pipeline.rs           # end-to-end multi-stage pipeline tests
-  benches/
-    bench_layout.rs
   python/
     laytext/
       __init__.py
-      __init__.pyi
+      _core.pyi            # type stub for the compiled _core extension module
     tests/               # Python tests — bindings surface ONLY: type
       test_bindings.py    # conversions, exception mapping, call shape.
                            # No algorithm/logic assertions here.
