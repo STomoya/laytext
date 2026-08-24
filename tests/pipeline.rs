@@ -1,4 +1,5 @@
-use _core::blocks::{group_blocks, group_blocks_in_region};
+use _core::assemble::{assemble, assemble_region};
+use _core::blocks::group_blocks;
 use _core::geometry::Rect;
 use _core::params::Params;
 use _core::segmentation::segment;
@@ -54,7 +55,7 @@ fn region_scoped_merge_keeps_the_title_and_both_columns_separate() {
     };
     let (title, col_a, col_b) = multi_column_page();
     let region = segment(vec![title.clone(), col_a.clone(), col_b.clone()], &params);
-    let blocks = group_blocks_in_region(region, &params);
+    let blocks = assemble_region(region, &params);
 
     assert_eq!(blocks.len(), 3, "no cross-gutter or cross-title merge");
     for expected in [vec![title], vec![col_a], vec![col_b]] {
@@ -63,4 +64,43 @@ fn region_scoped_merge_keeps_the_title_and_both_columns_separate() {
             "expected a standalone block for {expected:?}, got {blocks:?}"
         );
     }
+}
+
+#[test]
+fn assemble_orders_blocks_top_to_bottom_within_a_single_region() {
+    let params = Params {
+        column_gap_min: Some(1.0),
+        row_gap_min: Some(50.0),
+        ..Default::default()
+    };
+    let top = line(rect(0.0, 50.0, 6.0, 60.0));
+    let bottom = line(rect(0.0, 0.0, 6.0, 10.0));
+
+    // Passed in bottom-to-top order to prove assemble sorts by position,
+    // not by input order.
+    let page = assemble(vec![bottom.clone(), top.clone()], &params);
+
+    assert_eq!(page.blocks.len(), 2);
+    assert_eq!(page.blocks[0].lines, vec![top]);
+    assert_eq!(page.blocks[1].lines, vec![bottom]);
+}
+
+#[test]
+fn assemble_orders_full_width_title_before_left_column_before_right_column() {
+    let params = Params {
+        column_gap_min: Some(10.0),
+        row_gap_min: Some(10.0),
+        full_width_threshold: 0.9,
+        ..Default::default()
+    };
+    let (title, col_a, col_b) = multi_column_page();
+
+    // Shuffled input order to prove assemble sorts by reading order, not
+    // by input order.
+    let page = assemble(vec![col_b.clone(), title.clone(), col_a.clone()], &params);
+
+    assert_eq!(page.blocks.len(), 3);
+    assert_eq!(page.blocks[0].lines, vec![title]);
+    assert_eq!(page.blocks[1].lines, vec![col_a]);
+    assert_eq!(page.blocks[2].lines, vec![col_b]);
 }

@@ -2,7 +2,7 @@
 
 import pytest
 
-from laytext import Char, FontInfo, Line, Params, Rect, group_lines
+from laytext import Block, Char, FontInfo, Line, Page, Params, Rect, analyze_page, group_lines
 
 
 def test_rect_round_trips_fields():
@@ -51,3 +51,24 @@ def test_group_lines_returns_line_objects_with_expected_shape():
 def test_group_lines_rejects_wrong_argument_type():
     with pytest.raises(TypeError):
         group_lines('not a list', Params())  # ty: ignore[invalid-argument-type]
+
+
+def test_analyze_page_empty_input_returns_empty_page():
+    page = analyze_page([], Params(column_gap_min=10.0, row_gap_min=10.0))
+    assert isinstance(page, Page)
+    assert page.blocks == []
+
+
+def test_analyze_page_returns_page_objects_with_expected_shape():
+    a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
+    page = analyze_page([a], Params(column_gap_min=10.0, row_gap_min=10.0))
+    assert isinstance(page, Page)
+    assert isinstance(page.bbox, Rect)
+    block = page.blocks[0]
+    assert isinstance(block, Block)
+    assert isinstance(block.lines[0], Line)
+
+
+def test_analyze_page_rejects_wrong_argument_type():
+    with pytest.raises(TypeError):
+        analyze_page('not a list', Params())  # ty: ignore[invalid-argument-type]

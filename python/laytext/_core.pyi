@@ -32,6 +32,16 @@ class Line:
     chars: list[Char]
     def __init__(self, bbox: Rect, upright: bool, chars: list[Char]) -> None: ...
 
+class Block:
+    bbox: Rect
+    lines: list[Line]
+    def __init__(self, bbox: Rect, lines: list[Line]) -> None: ...
+
+class Page:
+    bbox: Rect
+    blocks: list[Block]
+    def __init__(self, bbox: Rect, blocks: list[Block]) -> None: ...
+
 class Params:
     char_margin: float
     line_overlap: float
@@ -54,3 +64,4 @@ class Params:
     ) -> None: ...
 
 def group_lines(chars: list[Char], params: Params) -> list[Line]: ...
+def analyze_page(chars: list[Char], params: Params) -> Page: ...

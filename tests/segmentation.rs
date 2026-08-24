@@ -245,7 +245,10 @@ fn ordinary_paragraph_with_a_short_wrapped_last_line_is_not_split() {
     let l2 = line(rect(0.0, 18.0, 395.0, 28.0));
     let l3 = line(rect(0.0, 6.0, 395.0, 16.0));
     let l4 = line(rect(0.0, -6.0, 150.0, 4.0));
-    let region = segment(vec![l1.clone(), l2.clone(), l3.clone(), l4.clone()], &params);
+    let region = segment(
+        vec![l1.clone(), l2.clone(), l3.clone(), l4.clone()],
+        &params,
+    );
     assert_eq!(
         region,
         Region::Leaf {
