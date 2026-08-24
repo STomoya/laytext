@@ -104,9 +104,12 @@ aren't subject to this workflow.
 - Block-merging (line → block) always runs scoped to a single region;
   region segmentation (the X-Y cut) always runs first, so merges can never
   cross a column boundary.
-- `column_gap_min` / `row_gap_min` are `Option<f64>` in `Params` and are
-  required (non-`None`) for now — `None` is reserved for future
-  auto-tuning, which is explicitly out of scope for v1 (see below).
+- `column_gap_min` / `row_gap_min` are `Option<f64>` in `Params`. When
+  `None`, `segment()` (`src/segmentation.rs`) derives the threshold per
+  region from that region's median line height (geometry-only, no font
+  metrics), recomputed at each recursion level so nested regions with
+  different text sizes get locally appropriate thresholds. An explicit
+  value always overrides the derived one.
 - Prefer porting pdfminer's existing algorithm (line grouping,
   distance-based block merge) over designing new heuristics — deviate only
   where multi-column support or the hierarchical output genuinely require
@@ -174,7 +177,5 @@ aren't subject to this workflow.
 - OCR, PDF parsing/content-stream decoding, rendering.
 - ML-based layout detection (e.g. DocLayNet-style models).
 - Table structure detection.
-- Auto-tuning of `column_gap_min` / `row_gap_min` — deferred until real-data
-  validation shows fixed thresholds failing across documents.
 - Structure-of-arrays (numpy-backed) batched input/output — only add if
   profiling shows FFI marshalling is the actual bottleneck, not upfront.
