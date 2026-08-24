@@ -2,7 +2,19 @@
 
 import pytest
 
-from laytext import Block, Char, FontInfo, Line, Page, Params, Rect, analyze_page, group_lines
+from laytext import (
+    Block,
+    Char,
+    FontInfo,
+    Line,
+    Page,
+    PageInput,
+    Params,
+    Rect,
+    analyze_document,
+    analyze_page,
+    group_lines,
+)
 
 
 def test_rect_round_trips_fields():
@@ -72,3 +84,27 @@ def test_analyze_page_returns_page_objects_with_expected_shape():
 def test_analyze_page_rejects_wrong_argument_type():
     with pytest.raises(TypeError):
         analyze_page('not a list', Params())  # ty: ignore[invalid-argument-type]
+
+
+def test_page_input_round_trips_chars():
+    a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
+    page_input = PageInput([a])
+    assert page_input.chars[0].text == 'a'
+
+
+def test_analyze_document_empty_input_returns_empty_list():
+    assert analyze_document([], Params(column_gap_min=10.0, row_gap_min=10.0)) == []
+
+
+def test_analyze_document_returns_one_page_per_page_input_in_order():
+    a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
+    params = Params(column_gap_min=10.0, row_gap_min=10.0)
+    pages = analyze_document([PageInput([a]), PageInput([])], params)
+    assert [isinstance(p, Page) for p in pages] == [True, True]
+    assert len(pages[0].blocks) == 1
+    assert pages[1].blocks == []
+
+
+def test_analyze_document_rejects_wrong_argument_type():
+    with pytest.raises(TypeError):
+        analyze_document('not a list', Params())  # ty: ignore[invalid-argument-type]

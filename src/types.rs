@@ -97,9 +97,23 @@ impl Page {
     }
 }
 
+#[pyclass(get_all, from_py_object)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageInput {
+    pub chars: Vec<Char>,
+}
+
+#[pymethods]
+impl PageInput {
+    #[new]
+    fn py_new(chars: Vec<Char>) -> Self {
+        PageInput { chars }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Block, Char, FontInfo, Line, Page};
+    use super::{Block, Char, FontInfo, Line, Page, PageInput};
     use crate::geometry::Rect;
 
     fn rect() -> Rect {
@@ -288,6 +302,35 @@ mod tests {
             use pyo3::types::{PyAnyMethods, PyString};
             let obj = PyString::new(py, "not a page");
             let extracted: Result<Page, _> = obj.extract();
+            assert!(extracted.is_err());
+        });
+    }
+
+    #[test]
+    fn page_input_py_new_assigns_chars_from_arguments() {
+        let c = Char::py_new(rect(), 'a', None);
+        let p = PageInput::py_new(vec![c.clone()]);
+        assert_eq!(p.chars, vec![c]);
+    }
+
+    #[test]
+    fn page_input_extracts_from_python_object() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let p = PageInput::py_new(vec![Char::py_new(rect(), 'a', None)]);
+            let obj = pyo3::Py::new(py, p.clone()).unwrap();
+            let extracted: PageInput = obj.extract(py).unwrap();
+            assert_eq!(extracted, p);
+        });
+    }
+
+    #[test]
+    fn page_input_extraction_fails_for_wrong_python_type() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::{PyAnyMethods, PyString};
+            let obj = PyString::new(py, "not a page input");
+            let extracted: Result<PageInput, _> = obj.extract();
             assert!(extracted.is_err());
         });
     }
