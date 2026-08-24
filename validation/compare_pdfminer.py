@@ -17,13 +17,13 @@ pdfminer.six and laytext over every PDF in data/pdfs/, then checks:
 
 Known limitation: on this corpus, matched lines commonly show residual
 1-3px/200dpi deltas concentrated on descender glyphs (y, g, j, ...) even
-when laytext's grouping agrees with pdfminer's exactly. Root-caused by
-comparing individual glyph bboxes directly: pdfminer.six's own internal
-char extraction and pypdfium2's `loose=True` charbox disagree by ~0.5-1pt
-on some descender glyphs, upstream of and independent from laytext's
-grouping. laytext never re-derives char geometry (SPEC.md §1) — it trusts
-whatever bbox the caller supplies — so this is expected corpus noise from
-comparing two independent char-extraction backends, not a laytext defect.
+when laytext's grouping agrees with pdfminer's exactly. Suspected cause:
+pdfminer.six's own internal char extraction and pypdfium2's `loose=True`
+charbox disagree by ~0.5-1pt on some descender glyphs, upstream of and
+independent from laytext's grouping. laytext never re-derives char geometry
+(SPEC.md §1) — it trusts whatever bbox the caller supplies — so this is
+expected corpus noise from comparing two independent char-extraction
+backends, not a laytext defect.
 
 Usage: uv run python validation/compare_pdfminer.py
 """
@@ -33,11 +33,10 @@ import pathlib
 import sys
 import time
 
+import laytext
 import pdfminer.high_level
 import pdfminer.layout
 import pypdfium2 as pdfium
-
-import laytext
 
 PDF_DIR = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'pdfs'
 DPI_HARD = 200
@@ -106,6 +105,16 @@ def _selfcheck() -> None:
     assert missing_pm == 0
     assert missing_lt == 0
 
+    # two pm boxes both within MATCH_MAX_DELTA_PT of the same lt box: the
+    # closer one (pm0, delta 0.05) must win the match, leaving the farther
+    # one (pm1, delta 0.15) unmatched rather than both claiming it.
+    pm = [(0.0, 0.0, 1.0, 1.0), (0.0, 0.0, 1.2, 1.0)]
+    lt = [(0.0, 0.0, 1.05, 1.0)]
+    matched, missing_pm, missing_lt = greedy_match(pm, lt)
+    assert matched == [(0, 0)], matched
+    assert missing_pm == 1
+    assert missing_lt == 0
+
     matched, missing_pm, missing_lt = greedy_match([(0.0, 0.0, 1.0, 1.0)], [(500.0, 500.0, 501.0, 501.0)])
     assert matched == []
     assert (missing_pm, missing_lt) == (1, 1)
@@ -122,8 +131,8 @@ def extract_page_chars(page: pdfium.PdfPage) -> list[laytext.Char]:
     chars = []
     for i in range(textpage.count_chars()):
         # loose=True: font-bound box, closer analog to pdfminer's LTChar box
-        # than the default tight ink bbox (see local/run.py for why tight
-        # boxes fragment CJK lines).
+        # than the default tight ink bbox, which leaves inter-glyph gaps in
+        # CJK text comparable in size to real word gaps and fragments lines.
         box = textpage.get_charbox(i, loose=True)
         text = textpage.get_text_range(i, 1)
         if not text or box[2] - box[0] <= 0 or box[3] - box[1] <= 0:

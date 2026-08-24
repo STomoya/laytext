@@ -336,3 +336,60 @@ fn alternating_full_and_narrow_lines_within_one_paragraph_are_not_split() {
         }
     );
 }
+
+#[test]
+fn title_two_column_body_and_footer_still_splits_into_three_bands() {
+    // regression: bands.len() != 2 must not reject every band count above
+    // 2 - only the all-singleton-band chain that signals paragraph noise
+    // (see alternating_full_and_narrow_lines_...). A real title/body/footer
+    // page bands into 3 groups (title, [left,right], footer), and the
+    // middle band has more than one line, so this must still force-split;
+    // otherwise the title/footer's full-width bboxes swallow the column
+    // gap in try_axis_cut_x and the whole page collapses into one leaf,
+    // merging the left and right columns together.
+    let params = Params {
+        column_gap_min: Some(15.0),
+        row_gap_min: Some(20.0), // wider than any band-to-band gap below
+        full_width_threshold: 0.9,
+        ..Default::default()
+    };
+    let title = line(rect(0.0, 15.0, 220.0, 25.0)); // full width, 5pt gap to body
+    let left = line(rect(0.0, 0.0, 100.0, 10.0)); // narrow, 20pt gap to right
+    let right = line(rect(120.0, 0.0, 220.0, 10.0)); // narrow, 12pt gap to footer
+    let footer = line(rect(0.0, -12.0, 220.0, -3.0)); // full width
+    let region = segment(
+        vec![title.clone(), left.clone(), right.clone(), footer.clone()],
+        &params,
+    );
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, -12.0, 220.0, 25.0),
+            orientation: Orientation::Horizontal,
+            children: vec![
+                Region::Leaf {
+                    bbox: title.bbox,
+                    lines: vec![title],
+                },
+                Region::Split {
+                    bbox: rect(0.0, 0.0, 220.0, 10.0),
+                    orientation: Orientation::Vertical,
+                    children: vec![
+                        Region::Leaf {
+                            bbox: left.bbox,
+                            lines: vec![left],
+                        },
+                        Region::Leaf {
+                            bbox: right.bbox,
+                            lines: vec![right],
+                        },
+                    ],
+                },
+                Region::Leaf {
+                    bbox: footer.bbox,
+                    lines: vec![footer],
+                },
+            ],
+        }
+    );
+}

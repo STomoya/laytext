@@ -29,9 +29,9 @@ fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
 /// Splits `lines` into consecutive top-to-bottom bands whose lines share the
 /// same "is full width relative to `bbox`" status, and recursively segments
 /// each band. Returns `None` when every line has the same status (nothing to
-/// force apart), or when banding doesn't produce the clean title-band /
-/// content-band shape this heuristic targets (see the `bands.len() != 2`
-/// check below).
+/// force apart), or when banding produces nothing but single-line bands
+/// (see the check below) - the signature of justified-text noise rather
+/// than a real section boundary.
 fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<Vec<Region>> {
     let threshold = params.full_width_threshold * bbox.width();
     let is_full = |l: &Line| l.bbox.width() >= threshold;
@@ -63,14 +63,15 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
         }
     }
 
-    // A genuine title/header sitting above (or below) column content is a
-    // single boundary: one band of the odd-status lines, one band of
-    // everything else. A justified paragraph's wrapped lines can straddle
-    // the width threshold line-by-line, producing a chain of alternating
-    // single-line bands instead — that's noise, not a section boundary, so
-    // leave it to the column/row whitespace-gap cuts (or a plain leaf)
-    // rather than forcing it apart here.
-    if bands.len() != 2 {
+    // A genuine section boundary (a title/header/footer band around column
+    // content, however many bands that produces) always groups real content
+    // together: at least one band has more than one line. A justified
+    // paragraph's wrapped lines can straddle the width threshold
+    // line-by-line instead, producing a chain where every band is a single
+    // line — that's noise, not a section boundary, so leave it to the
+    // column/row whitespace-gap cuts (or a plain leaf) rather than forcing
+    // it apart here.
+    if bands.len() > 2 && bands.iter().all(|b| b.len() == 1) {
         return None;
     }
 
