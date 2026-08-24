@@ -90,7 +90,7 @@ def main() -> int:
 
     pdf = pdfium.PdfDocument(str(args.pdf))
     page = pdf[args.page]
-    page_height = page.get_size()[1]
+    page_width, page_height = page.get_size()
     scale = args.dpi / 72
 
     image = page.render(scale=scale).to_pil().convert('RGB')
@@ -110,7 +110,7 @@ def main() -> int:
             pm_line_count += 1
 
     chars = cp.extract_page_chars(page)
-    lt_page = laytext.analyze_page(chars, params)
+    lt_page = laytext.analyze_page(chars, page_width, page_height, params)
     lt_line_count = 0
     for block in lt_page.blocks:
         if args.blocks:

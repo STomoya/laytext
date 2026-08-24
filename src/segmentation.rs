@@ -48,7 +48,7 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
     sorted.sort_by(|a, b| {
         let ay = (a.bbox.y0 + a.bbox.y1) / 2.0;
         let by = (b.bbox.y0 + b.bbox.y1) / 2.0;
-        by.partial_cmp(&ay).unwrap()
+        by.total_cmp(&ay)
     });
 
     let mut bands: Vec<Vec<Line>> = Vec::new();
@@ -148,5 +148,29 @@ mod tests {
     fn widest_gap_nan_width_does_not_panic() {
         let result = widest_gap(vec![(0.0, 5.0), (0.0, f64::NAN)]);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn try_full_width_split_nan_y_does_not_panic() {
+        use crate::params::Params;
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, y0: f64, x1: f64, y1: f64| crate::geometry::Rect { x0, y0, x1, y1 };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+
+        let narrow = line(rect(0.0, f64::NAN, 10.0, 10.0));
+        let full = line(rect(0.0, 0.0, 100.0, 10.0));
+        let bbox = rect(0.0, 0.0, 100.0, 10.0);
+        let params = Params::default();
+
+        let _ = super::try_full_width_split(&[narrow, full], bbox, &params);
     }
 }

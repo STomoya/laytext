@@ -92,10 +92,20 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
         .into_iter()
         .map(|root| {
             let idxs = &groups[&root];
-            let block_lines: Vec<Line> = idxs.iter().map(|&i| owned[i].take().unwrap()).collect();
+            let mut block_lines: Vec<Line> =
+                idxs.iter().map(|&i| owned[i].take().unwrap()).collect();
+            block_lines.sort_by(|a, b| {
+                b.bbox
+                    .y1
+                    .total_cmp(&a.bbox.y1)
+                    .then(a.bbox.x0.total_cmp(&b.bbox.x0))
+            });
             let bbox = union_all(block_lines.iter().map(|l| l.bbox));
             Block {
                 bbox,
+                // Placeholder: `assemble` overwrites this with the final
+                // flattened reading-order index once all regions are merged.
+                reading_order: 0,
                 lines: block_lines,
             }
         })

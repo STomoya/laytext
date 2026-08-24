@@ -71,43 +71,59 @@ impl Line {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub bbox: Rect,
+    pub reading_order: usize,
     pub lines: Vec<Line>,
 }
 
 #[pymethods]
 impl Block {
     #[new]
-    fn py_new(bbox: Rect, lines: Vec<Line>) -> Self {
-        Block { bbox, lines }
+    fn py_new(bbox: Rect, reading_order: usize, lines: Vec<Line>) -> Self {
+        Block {
+            bbox,
+            reading_order,
+            lines,
+        }
     }
 }
 
 #[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {
-    pub bbox: Rect,
+    pub width: f64,
+    pub height: f64,
     pub blocks: Vec<Block>,
 }
 
 #[pymethods]
 impl Page {
     #[new]
-    fn py_new(bbox: Rect, blocks: Vec<Block>) -> Self {
-        Page { bbox, blocks }
+    fn py_new(width: f64, height: f64, blocks: Vec<Block>) -> Self {
+        Page {
+            width,
+            height,
+            blocks,
+        }
     }
 }
 
 #[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageInput {
+    pub width: f64,
+    pub height: f64,
     pub chars: Vec<Char>,
 }
 
 #[pymethods]
 impl PageInput {
     #[new]
-    fn py_new(chars: Vec<Char>) -> Self {
-        PageInput { chars }
+    fn py_new(chars: Vec<Char>, width: f64, height: f64) -> Self {
+        PageInput {
+            width,
+            height,
+            chars,
+        }
     }
 }
 
@@ -174,17 +190,19 @@ mod tests {
     #[test]
     fn block_py_new_assigns_all_fields_from_arguments() {
         let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
-        let b = Block::py_new(rect(), vec![l.clone()]);
+        let b = Block::py_new(rect(), 0, vec![l.clone()]);
         assert_eq!(b.bbox, rect());
+        assert_eq!(b.reading_order, 0);
         assert_eq!(b.lines, vec![l]);
     }
 
     #[test]
     fn page_py_new_assigns_all_fields_from_arguments() {
         let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
-        let b = Block::py_new(rect(), vec![l]);
-        let p = Page::py_new(rect(), vec![b.clone()]);
-        assert_eq!(p.bbox, rect());
+        let b = Block::py_new(rect(), 0, vec![l]);
+        let p = Page::py_new(8.5, 11.0, vec![b.clone()]);
+        assert_eq!(p.width, 8.5);
+        assert_eq!(p.height, 11.0);
         assert_eq!(p.blocks, vec![b]);
     }
 
@@ -231,7 +249,7 @@ mod tests {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
             let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
-            let b = Block::py_new(rect(), vec![l]);
+            let b = Block::py_new(rect(), 0, vec![l]);
             let obj = pyo3::Py::new(py, b.clone()).unwrap();
             let extracted: Block = obj.extract(py).unwrap();
             assert_eq!(extracted, b);
@@ -243,8 +261,8 @@ mod tests {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
             let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
-            let b = Block::py_new(rect(), vec![l]);
-            let p = Page::py_new(rect(), vec![b]);
+            let b = Block::py_new(rect(), 0, vec![l]);
+            let p = Page::py_new(8.5, 11.0, vec![b]);
             let obj = pyo3::Py::new(py, p.clone()).unwrap();
             let extracted: Page = obj.extract(py).unwrap();
             assert_eq!(extracted, p);
@@ -309,15 +327,17 @@ mod tests {
     #[test]
     fn page_input_py_new_assigns_chars_from_arguments() {
         let c = Char::py_new(rect(), 'a', None);
-        let p = PageInput::py_new(vec![c.clone()]);
+        let p = PageInput::py_new(vec![c.clone()], 8.5, 11.0);
         assert_eq!(p.chars, vec![c]);
+        assert_eq!(p.width, 8.5);
+        assert_eq!(p.height, 11.0);
     }
 
     #[test]
     fn page_input_extracts_from_python_object() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            let p = PageInput::py_new(vec![Char::py_new(rect(), 'a', None)]);
+            let p = PageInput::py_new(vec![Char::py_new(rect(), 'a', None)], 8.5, 11.0);
             let obj = pyo3::Py::new(py, p.clone()).unwrap();
             let extracted: PageInput = obj.extract(py).unwrap();
             assert_eq!(extracted, p);

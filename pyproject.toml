@@ -1,7 +1,7 @@
 [project]
 name = "laytext"
 dynamic = ["version"]
-description = "Add your description here"
+description = "PyO3-exposed Rust library for pdfminer.six-style, multi-column-aware PDF layout detection"
 readme = "README.md"
 authors = [
     { name = "Tomoya Sawada", email = "stomoya0110@gmail.com" }
@@ -91,7 +91,7 @@ addopts = [
     "-vv",
     "-s",
     "-ra",
-    "--cov=src",
+    "--cov=python/laytext",
     "--cov-report=term-missing",
     "--cov-report=xml:reports/coverage.xml",
     "--junitxml=reports/pytest.xml"
