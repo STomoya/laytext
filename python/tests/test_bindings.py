@@ -14,6 +14,7 @@ from laytext import (
     analyze_document,
     analyze_page,
     group_lines,
+    group_lines_document,
 )
 
 
@@ -63,6 +64,23 @@ def test_group_lines_returns_line_objects_with_expected_shape():
 def test_group_lines_rejects_wrong_argument_type():
     with pytest.raises(TypeError):
         group_lines('not a list', Params())  # ty: ignore[invalid-argument-type]
+
+
+def test_group_lines_document_empty_input_returns_empty_list():
+    assert group_lines_document([], Params()) == []
+
+
+def test_group_lines_document_returns_one_line_group_per_page_in_order():
+    a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
+    pages = group_lines_document([[a], []], Params())
+    assert len(pages) == 2
+    assert isinstance(pages[0][0], Line)
+    assert pages[1] == []
+
+
+def test_group_lines_document_rejects_wrong_argument_type():
+    with pytest.raises(TypeError):
+        group_lines_document('not a list', Params())  # ty: ignore[invalid-argument-type]
 
 
 def test_analyze_page_empty_input_returns_empty_page():

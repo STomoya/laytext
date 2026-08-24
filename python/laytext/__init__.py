@@ -12,6 +12,7 @@ from laytext._core import (
     analyze_document,
     analyze_page,
     group_lines,
+    group_lines_document,
 )
 from laytext._version import __version__
 
@@ -28,4 +29,5 @@ __all__ = [
     'analyze_document',
     'analyze_page',
     'group_lines',
+    'group_lines_document',
 ]
