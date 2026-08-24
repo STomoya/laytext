@@ -28,6 +28,7 @@ build-backend = "maturin"
 dev = [
     "maturin[zig]>=1.14.1",
     "pdfminer-six>=20260107",
+    "pillow>=12.3.0",
     "pypdfium2>=5.13.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",

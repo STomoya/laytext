@@ -29,7 +29,9 @@ fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
 /// Splits `lines` into consecutive top-to-bottom bands whose lines share the
 /// same "is full width relative to `bbox`" status, and recursively segments
 /// each band. Returns `None` when every line has the same status (nothing to
-/// force apart).
+/// force apart), or when banding doesn't produce the clean title-band /
+/// content-band shape this heuristic targets (see the `bands.len() != 2`
+/// check below).
 fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<Vec<Region>> {
     let threshold = params.full_width_threshold * bbox.width();
     let is_full = |l: &Line| l.bbox.width() >= threshold;
@@ -59,6 +61,17 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
             bands.push(vec![l]);
             current_full = Some(f);
         }
+    }
+
+    // A genuine title/header sitting above (or below) column content is a
+    // single boundary: one band of the odd-status lines, one band of
+    // everything else. A justified paragraph's wrapped lines can straddle
+    // the width threshold line-by-line, producing a chain of alternating
+    // single-line bands instead — that's noise, not a section boundary, so
+    // leave it to the column/row whitespace-gap cuts (or a plain leaf)
+    // rather than forcing it apart here.
+    if bands.len() != 2 {
+        return None;
     }
 
     Some(bands.into_iter().map(|b| segment(b, params)).collect())
