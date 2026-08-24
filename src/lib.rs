@@ -1,6 +1,8 @@
+pub mod blocks;
 pub mod geometry;
 pub mod lines;
 pub mod params;
+pub mod segmentation;
 pub mod types;
 
 use pyo3::prelude::*;

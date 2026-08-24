@@ -76,6 +76,50 @@ impl Rect {
     }
 }
 
+/// Empty input returns a zero rect.
+pub fn union_all(rects: impl IntoIterator<Item = Rect>) -> Rect {
+    let mut iter = rects.into_iter();
+    let first = match iter.next() {
+        Some(r) => r,
+        None => {
+            return Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 0.0,
+                y1: 0.0,
+            };
+        }
+    };
+    iter.fold(first, |acc, r| acc.union(&r))
+}
+
+/// Projects `intervals` onto an axis, merges overlapping/touching ones into
+/// runs, and returns the gaps between consecutive runs that are at least
+/// `min_gap` wide, in ascending order.
+pub fn find_gaps(intervals: &[(f64, f64)], min_gap: f64) -> Vec<(f64, f64)> {
+    let mut sorted: Vec<(f64, f64)> = intervals.to_vec();
+    sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    let mut runs: Vec<(f64, f64)> = Vec::new();
+    for iv in sorted {
+        match runs.last_mut() {
+            Some(run) if iv.0 <= run.1 => {
+                if iv.1 > run.1 {
+                    run.1 = iv.1;
+                }
+            }
+            _ => runs.push(iv),
+        }
+    }
+
+    runs.windows(2)
+        .filter_map(|w| {
+            let gap = (w[0].1, w[1].0);
+            (gap.1 - gap.0 >= min_gap).then_some(gap)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::Rect;
@@ -208,5 +252,73 @@ mod tests {
         let a = rect(0.0, 0.0, 6.0, 10.0);
         let b = rect(3.0, 5.0, 20.0, 30.0);
         assert_eq!(a.union(&b), rect(0.0, 0.0, 20.0, 30.0));
+    }
+
+    #[test]
+    fn union_all_empty_input_returns_a_zero_rect() {
+        assert_eq!(super::union_all([]), rect(0.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn union_all_single_rect_returns_itself() {
+        let a = rect(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(super::union_all([a]), a);
+    }
+
+    #[test]
+    fn union_all_folds_multiple_rects() {
+        let a = rect(0.0, 0.0, 6.0, 10.0);
+        let b = rect(3.0, 5.0, 20.0, 30.0);
+        let c = rect(-5.0, 2.0, 4.0, 6.0);
+        assert_eq!(super::union_all([a, b, c]), rect(-5.0, 0.0, 20.0, 30.0));
+    }
+
+    #[test]
+    fn find_gaps_empty_input_returns_no_gaps() {
+        assert_eq!(super::find_gaps(&[], 1.0), vec![]);
+    }
+
+    #[test]
+    fn find_gaps_single_interval_returns_no_gaps() {
+        assert_eq!(super::find_gaps(&[(0.0, 5.0)], 1.0), vec![]);
+    }
+
+    #[test]
+    fn find_gaps_overlapping_intervals_merge_without_a_gap() {
+        assert_eq!(super::find_gaps(&[(0.0, 5.0), (3.0, 8.0)], 1.0), vec![]);
+    }
+
+    #[test]
+    fn find_gaps_touching_intervals_merge_without_a_gap() {
+        assert_eq!(super::find_gaps(&[(0.0, 5.0), (5.0, 8.0)], 1.0), vec![]);
+    }
+
+    #[test]
+    fn find_gaps_gap_smaller_than_min_gap_is_not_reported() {
+        assert_eq!(super::find_gaps(&[(0.0, 5.0), (5.5, 8.0)], 1.0), vec![]);
+    }
+
+    #[test]
+    fn find_gaps_gap_at_least_min_gap_is_reported() {
+        assert_eq!(
+            super::find_gaps(&[(0.0, 5.0), (7.0, 8.0)], 2.0),
+            vec![(5.0, 7.0)]
+        );
+    }
+
+    #[test]
+    fn find_gaps_unsorted_input_is_handled() {
+        assert_eq!(
+            super::find_gaps(&[(7.0, 8.0), (0.0, 5.0)], 2.0),
+            vec![(5.0, 7.0)]
+        );
+    }
+
+    #[test]
+    fn find_gaps_returns_multiple_gaps_in_order() {
+        assert_eq!(
+            super::find_gaps(&[(0.0, 5.0), (10.0, 15.0), (20.0, 25.0)], 2.0),
+            vec![(5.0, 10.0), (15.0, 20.0)]
+        );
     }
 }
