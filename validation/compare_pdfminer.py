@@ -26,12 +26,20 @@ expected corpus noise from comparing two independent char-extraction
 backends, not a laytext defect.
 
 Usage: uv run python validation/compare_pdfminer.py
+       uv run python validation/compare_pdfminer.py --pdfminer-chars pypdfium2
+
+--pdfminer-chars pypdfium2 feeds pdfminer's own grouping algorithm
+(LTPage.analyze) the same pypdfium2 char boxes laytext uses, instead of
+letting pdfminer parse the PDF and extract chars itself. This removes the
+char-extraction-backend noise described above, isolating the comparison to
+grouping-algorithm behavior only.
 """
 
 import argparse
 import pathlib
 import sys
 import time
+from collections.abc import Callable
 
 import laytext
 import pdfminer.high_level
@@ -119,14 +127,26 @@ def _selfcheck() -> None:
     assert matched == []
     assert (missing_pm, missing_lt) == (1, 1)
 
+    # group_chars_pdfminer_geometry_only: two adjacent chars must merge into
+    # one line, a third far-away char must stay a separate line.
+    char_boxes: list[tuple[BBox, str]] = [
+        ((0.0, 0.0, 10.0, 10.0), 'a'),
+        ((10.0, 0.0, 20.0, 10.0), 'b'),
+        ((1000.0, 1000.0, 1010.0, 1010.0), 'c'),
+    ]
+    lines = group_chars_pdfminer_geometry_only(char_boxes, pdfminer.layout.LAParams(), (0.0, 0.0, 1010.0, 1010.0))
+    merged_line, lone_line = sorted(lines, key=lambda line: line[0])
+    assert bbox_delta(merged_line, (0.0, 0.0, 20.0, 10.0)) < _EPSILON, lines
+    assert bbox_delta(lone_line, (1000.0, 1000.0, 1010.0, 1010.0)) < _EPSILON, lines
+
 
 def iter_corpus_pdfs() -> list[pathlib.Path]:
     """Every PDF in the real-data corpus, in a stable order."""
     return sorted(PDF_DIR.glob('*.pdf'))
 
 
-def extract_page_chars(page: pdfium.PdfPage) -> list[laytext.Char]:
-    """pypdfium2 char boxes for one page, as laytext.Char, filtered to real glyphs."""
+def extract_page_char_boxes(page: pdfium.PdfPage) -> list[tuple[BBox, str]]:
+    """pypdfium2 char boxes for one page, filtered to real glyphs."""
     textpage = page.get_textpage()
     chars = []
     for i in range(textpage.count_chars()):
@@ -139,8 +159,48 @@ def extract_page_chars(page: pdfium.PdfPage) -> list[laytext.Char]:
             # pypdfium2 synthetic zero-area chars at word gaps/newlines;
             # not real glyphs, no pdfminer LTChar equivalent.
             continue
-        chars.append(laytext.Char(laytext.Rect(*box), text))
+        chars.append((box, text))
     return chars
+
+
+def extract_page_chars(page: pdfium.PdfPage) -> list[laytext.Char]:
+    """pypdfium2 char boxes for one page, as laytext.Char."""
+    return [laytext.Char(laytext.Rect(*box), text) for box, text in extract_page_char_boxes(page)]
+
+
+class _SyntheticLTChar(pdfminer.layout.LTChar):
+    """An LTChar built straight from a bbox, skipping LTChar's normal font-metric bbox derivation.
+
+    pdfminer's grouping (group_objects/group_textlines/group_textboxes)
+    only reads bbox geometry and `isinstance(obj, LTChar)`; it never reads
+    font/matrix data for the grouping decision itself — that's only used by
+    the real LTChar.__init__ to *compute* its bbox. So this lets pdfminer's
+    grouping algorithm run on an externally supplied bbox (e.g. pypdfium2's)
+    without pdfminer ever parsing the PDF or extracting chars itself.
+    """
+
+    def __init__(self, bbox: BBox, text: str) -> None:
+        pdfminer.layout.LTText.__init__(self)
+        self._text = text
+        self.upright = True
+        pdfminer.layout.LTComponent.__init__(self, bbox)
+
+
+def group_chars_pdfminer_geometry_only(
+    char_boxes: list[tuple[BBox, str]], la_params: pdfminer.layout.LAParams, page_bbox: BBox
+) -> list[BBox]:
+    """Run pdfminer's own line/box grouping on externally supplied char boxes.
+
+    page_bbox must be the real page bbox, not just the chars' bounding
+    region — pdfminer's internal Plane spatial index clips neighbor
+    searches to it, so an undersized bbox silently drops merges.
+    """
+    ltpage = pdfminer.layout.LTPage(0, page_bbox)
+    for box, text in char_boxes:
+        ltpage.add(_SyntheticLTChar(box, text))
+    ltpage.analyze(la_params)
+    boxes = find_text_boxes(ltpage)
+    return [line.bbox for box in boxes for line in box]
 
 
 def find_text_boxes(obj) -> list[pdfminer.layout.LTTextBox]:
@@ -171,6 +231,20 @@ def analyze_pdf_pdfminer(pdf_path: pathlib.Path, la_params: pdfminer.layout.LAPa
     return elapsed, pages
 
 
+def analyze_pdf_pdfminer_pypdfium2chars(
+    pdf_path: pathlib.Path, la_params: pdfminer.layout.LAParams
+) -> tuple[float, list[list[BBox]]]:
+    """Run pdfminer's grouping on pypdfium2 char boxes; return (elapsed seconds, per-page line bboxes)."""
+    pdf = pdfium.PdfDocument(str(pdf_path))
+    # Char extraction is upstream work excluded from the timed section, same as analyze_pdf_laytext.
+    per_page = [(extract_page_char_boxes(pdf[i]), pdf[i].get_mediabox()) for i in range(len(pdf))]
+
+    t0 = time.perf_counter()
+    pages = [group_chars_pdfminer_geometry_only(char_boxes, la_params, page_bbox) for char_boxes, page_bbox in per_page]
+    elapsed = time.perf_counter() - t0
+    return elapsed, pages
+
+
 def analyze_pdf_laytext(pdf_path: pathlib.Path, params: laytext.Params) -> tuple[float, list[list[BBox]]]:
     """Run laytext over one PDF; return (elapsed seconds, per-page line bboxes)."""
     pdf = pdfium.PdfDocument(str(pdf_path))
@@ -190,7 +264,15 @@ def analyze_pdf_laytext(pdf_path: pathlib.Path, params: laytext.Params) -> tuple
     return elapsed, pages
 
 
-def compare_corpus(pdfs: list[pathlib.Path], la_params: pdfminer.layout.LAParams, params: laytext.Params) -> dict:
+PdfminerAnalyzeFn = Callable[[pathlib.Path, pdfminer.layout.LAParams], tuple[float, list[list[BBox]]]]
+
+
+def compare_corpus(
+    pdfs: list[pathlib.Path],
+    la_params: pdfminer.layout.LAParams,
+    params: laytext.Params,
+    pdfminer_analyze_fn: PdfminerAnalyzeFn = analyze_pdf_pdfminer,
+) -> dict:
     """Run both engines over the whole corpus and collect comparison stats."""
     total_pm_time = 0.0
     total_lt_time = 0.0
@@ -201,7 +283,7 @@ def compare_corpus(pdfs: list[pathlib.Path], la_params: pdfminer.layout.LAParams
 
     for pdf_path in pdfs:
         print(f'-- {pdf_path.name}', file=sys.stderr)
-        pm_time, pm_pages = analyze_pdf_pdfminer(pdf_path, la_params)
+        pm_time, pm_pages = pdfminer_analyze_fn(pdf_path, la_params)
         lt_time, lt_pages = analyze_pdf_laytext(pdf_path, params)
         total_pm_time += pm_time
         total_lt_time += lt_time
@@ -279,7 +361,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--column-gap-min', type=float, default=20.0)
     parser.add_argument('--row-gap-min', type=float, default=15.0)
+    parser.add_argument(
+        '--pdfminer-chars',
+        choices=['native', 'pypdfium2'],
+        default='native',
+        help="'native' (default): pdfminer parses the PDF and extracts chars itself. "
+        "'pypdfium2': feed pdfminer's grouping algorithm the same pypdfium2 char boxes laytext uses, "
+        'isolating the comparison to grouping behavior only.',
+    )
     args = parser.parse_args()
+    pdfminer_analyze_fn = (
+        analyze_pdf_pdfminer if args.pdfminer_chars == 'native' else analyze_pdf_pdfminer_pypdfium2chars
+    )
 
     la_params = pdfminer.layout.LAParams(all_texts=True)
     params = laytext.Params(
@@ -296,7 +389,8 @@ def main() -> int:
         print(f'no PDFs found in {PDF_DIR}', file=sys.stderr)
         return 1
 
-    results = compare_corpus(pdfs, la_params, params)
+    print(f'pdfminer char source: {args.pdfminer_chars}')
+    results = compare_corpus(pdfs, la_params, params, pdfminer_analyze_fn)
     ok = print_report(len(pdfs), results)
     return 0 if ok else 1
 
