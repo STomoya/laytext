@@ -69,7 +69,10 @@ laytext/
 
 - Install (dev): `uv run maturin develop --release`
 - Build wheel: `./scripts/build.sh`
-- Test (Rust — owns all algorithm/logic correctness): `cargo test`
+- Test (Rust — owns all algorithm/logic correctness): `cargo test` (needs
+  `LD_LIBRARY_PATH` pointed at the Python lib dir used by `pyo3`, e.g.
+  `LD_LIBRARY_PATH=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')`,
+  or the test binary fails to find `libpython3.11.so.1.0` when run directly)
 - Test (Python bindings only): `uv run pytest python/tests/`
 - Validation (pdfminer comparison + DPI tolerance + perf, real-data corpus,
   release-blocking, not part of the regular test suite):

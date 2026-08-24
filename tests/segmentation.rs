@@ -95,6 +95,39 @@ fn columns_with_gap_smaller_than_column_gap_min_stay_a_single_leaf() {
 }
 
 #[test]
+fn intruding_line_across_gutter_does_not_block_the_column_cut() {
+    // A caption/table-row line bridging the gutter has an x-interval that
+    // overlaps both columns, so projecting it alongside the columns merges
+    // every run into one and the plain gap search finds nothing on either
+    // axis (same y-range on all three lines, so there's no row-gap escape
+    // hatch either). Excluding just this one line should still reveal the
+    // 20pt column gap; the excluded line then lands on whichever side its
+    // center sits nearer (105 < the gap's 110 midpoint: the left column).
+    let params = params_with_gaps(Some(10.0), Some(10.0));
+    let left = line(rect(0.0, 0.0, 100.0, 10.0));
+    let right = line(rect(120.0, 0.0, 220.0, 10.0));
+    let intruder = line(rect(40.0, 0.0, 170.0, 10.0));
+    let region = segment(vec![left.clone(), right.clone(), intruder.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 220.0, 10.0),
+            orientation: Orientation::Vertical,
+            children: vec![
+                Region::Leaf {
+                    bbox: rect(0.0, 0.0, 170.0, 10.0),
+                    lines: vec![left, intruder],
+                },
+                Region::Leaf {
+                    bbox: right.bbox,
+                    lines: vec![right],
+                },
+            ],
+        }
+    );
+}
+
+#[test]
 fn stacked_rows_with_a_clear_gap_split_horizontally_top_to_bottom() {
     let params = params_with_gaps(Some(10.0), Some(10.0));
     let top = line(rect(0.0, 120.0, 100.0, 130.0));
