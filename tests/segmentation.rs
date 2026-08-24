@@ -233,6 +233,70 @@ fn widest_gap_is_chosen_when_multiple_candidate_gaps_exist() {
 }
 
 #[test]
+fn wider_row_gap_wins_over_narrower_column_gap() {
+    // Two stacked rows, each internally two-column. The column gap (10pt)
+    // clears column_gap_min and is tried first, so today's fixed
+    // vertical-before-horizontal order splits into left/right columns
+    // (each spanning both rows) before ever comparing against the far
+    // wider row gap (110pt) that actually separates two unrelated bands.
+    // The widest gap overall should win regardless of axis: splitting
+    // top/bottom first, each then splitting into its own left/right pair.
+    let params = params_with_gaps(Some(5.0), Some(5.0));
+    let top_left = line(rect(0.0, 120.0, 40.0, 130.0));
+    let top_right = line(rect(50.0, 120.0, 100.0, 130.0)); // 10pt gap from top_left
+    let bottom_left = line(rect(0.0, 0.0, 40.0, 10.0));
+    let bottom_right = line(rect(50.0, 0.0, 100.0, 10.0)); // 10pt gap from bottom_left
+    // row gap (bottom row y1=10 to top row y0=120): 110pt, far wider than
+    // either column gap.
+    let region = segment(
+        vec![
+            top_left.clone(),
+            top_right.clone(),
+            bottom_left.clone(),
+            bottom_right.clone(),
+        ],
+        &params,
+    );
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 100.0, 130.0),
+            orientation: Orientation::Horizontal,
+            children: vec![
+                Region::Split {
+                    bbox: rect(0.0, 120.0, 100.0, 130.0),
+                    orientation: Orientation::Vertical,
+                    children: vec![
+                        Region::Leaf {
+                            bbox: top_left.bbox,
+                            lines: vec![top_left],
+                        },
+                        Region::Leaf {
+                            bbox: top_right.bbox,
+                            lines: vec![top_right],
+                        },
+                    ],
+                },
+                Region::Split {
+                    bbox: rect(0.0, 0.0, 100.0, 10.0),
+                    orientation: Orientation::Vertical,
+                    children: vec![
+                        Region::Leaf {
+                            bbox: bottom_left.bbox,
+                            lines: vec![bottom_left],
+                        },
+                        Region::Leaf {
+                            bbox: bottom_right.bbox,
+                            lines: vec![bottom_right],
+                        },
+                    ],
+                },
+            ],
+        }
+    );
+}
+
+#[test]
 fn full_width_title_forces_a_horizontal_split_above_two_columns() {
     let params = Params {
         column_gap_min: Some(10.0),
