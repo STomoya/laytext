@@ -66,30 +66,39 @@ def test_group_lines_rejects_wrong_argument_type():
 
 
 def test_analyze_page_empty_input_returns_empty_page():
-    page = analyze_page([], Params(column_gap_min=10.0, row_gap_min=10.0))
+    page = analyze_page([], 100.0, 200.0, Params(column_gap_min=10.0, row_gap_min=10.0))
     assert isinstance(page, Page)
     assert page.blocks == []
 
 
 def test_analyze_page_returns_page_objects_with_expected_shape():
     a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
-    page = analyze_page([a], Params(column_gap_min=10.0, row_gap_min=10.0))
+    page = analyze_page([a], 100.0, 200.0, Params(column_gap_min=10.0, row_gap_min=10.0))
     assert isinstance(page, Page)
-    assert isinstance(page.bbox, Rect)
+    assert page.width == 100.0
+    assert page.height == 200.0
     block = page.blocks[0]
     assert isinstance(block, Block)
+    assert block.reading_order == 0
     assert isinstance(block.lines[0], Line)
 
 
 def test_analyze_page_rejects_wrong_argument_type():
     with pytest.raises(TypeError):
-        analyze_page('not a list', Params())  # ty: ignore[invalid-argument-type]
+        analyze_page('not a list', 100.0, 200.0, Params())  # ty: ignore[invalid-argument-type]
 
 
-def test_page_input_round_trips_chars():
+def test_analyze_page_rejects_missing_gap_params():
+    with pytest.raises(ValueError, match='column_gap_min'):
+        analyze_page([], 100.0, 200.0, Params())
+
+
+def test_page_input_round_trips_chars_and_dimensions():
     a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
-    page_input = PageInput([a])
+    page_input = PageInput([a], 100.0, 200.0)
     assert page_input.chars[0].text == 'a'
+    assert page_input.width == 100.0
+    assert page_input.height == 200.0
 
 
 def test_analyze_document_empty_input_returns_empty_list():
@@ -99,7 +108,7 @@ def test_analyze_document_empty_input_returns_empty_list():
 def test_analyze_document_returns_one_page_per_page_input_in_order():
     a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
     params = Params(column_gap_min=10.0, row_gap_min=10.0)
-    pages = analyze_document([PageInput([a]), PageInput([])], params)
+    pages = analyze_document([PageInput([a], 100.0, 200.0), PageInput([], 100.0, 200.0)], params)
     assert [isinstance(p, Page) for p in pages] == [True, True]
     assert len(pages[0].blocks) == 1
     assert pages[1].blocks == []
@@ -108,3 +117,8 @@ def test_analyze_document_returns_one_page_per_page_input_in_order():
 def test_analyze_document_rejects_wrong_argument_type():
     with pytest.raises(TypeError):
         analyze_document('not a list', Params())  # ty: ignore[invalid-argument-type]
+
+
+def test_analyze_document_rejects_missing_gap_params():
+    with pytest.raises(ValueError, match='column_gap_min'):
+        analyze_document([], Params())

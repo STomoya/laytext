@@ -152,6 +152,18 @@ fn side_by_side_upper_aligned_vertical_lines_merge_into_one_block() {
 }
 
 #[test]
+fn lines_within_a_block_are_sorted_top_to_bottom_regardless_of_input_order() {
+    let params = Params::default();
+    let top = line(rect(0.0, 20.0, 100.0, 30.0), true);
+    let bottom = line(rect(0.0, 8.0, 100.0, 18.0), true);
+    // Passed in bottom-to-top order to prove group_blocks sorts by
+    // position, not by input order.
+    let blocks = group_blocks(vec![bottom.clone(), top.clone()], &params);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].lines, vec![top, bottom]);
+}
+
+#[test]
 fn side_by_side_centrally_aligned_vertical_lines_merge_into_one_block() {
     let params = Params::default();
     // Same width (10), vertical centers match, but neither edge does.

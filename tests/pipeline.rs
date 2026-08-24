@@ -78,7 +78,7 @@ fn assemble_orders_blocks_top_to_bottom_within_a_single_region() {
 
     // Passed in bottom-to-top order to prove assemble sorts by position,
     // not by input order.
-    let page = assemble(vec![bottom.clone(), top.clone()], &params);
+    let page = assemble(vec![bottom.clone(), top.clone()], &params, 6.0, 60.0);
 
     assert_eq!(page.blocks.len(), 2);
     assert_eq!(page.blocks[0].lines, vec![top]);
@@ -97,7 +97,12 @@ fn assemble_orders_full_width_title_before_left_column_before_right_column() {
 
     // Shuffled input order to prove assemble sorts by reading order, not
     // by input order.
-    let page = assemble(vec![col_b.clone(), title.clone(), col_a.clone()], &params);
+    let page = assemble(
+        vec![col_b.clone(), title.clone(), col_a.clone()],
+        &params,
+        220.0,
+        110.0,
+    );
 
     assert_eq!(page.blocks.len(), 3);
     assert_eq!(page.blocks[0].lines, vec![title]);

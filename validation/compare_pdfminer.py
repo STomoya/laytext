@@ -250,7 +250,10 @@ def analyze_pdf_laytext(pdf_path: pathlib.Path, params: laytext.Params) -> tuple
     pdf = pdfium.PdfDocument(str(pdf_path))
     # Char extraction is upstream work the caller always pays regardless of
     # which layout engine runs, so it's excluded from the timed section.
-    page_inputs = [laytext.PageInput(extract_page_chars(pdf[i])) for i in range(len(pdf))]
+    page_inputs = []
+    for i in range(len(pdf)):
+        x0, y0, x1, y1 = pdf[i].get_mediabox()
+        page_inputs.append(laytext.PageInput(extract_page_chars(pdf[i]), x1 - x0, y1 - y0))
 
     t0 = time.perf_counter()
     lt_pages = laytext.analyze_document(page_inputs, params)

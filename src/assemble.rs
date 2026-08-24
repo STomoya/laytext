@@ -26,12 +26,21 @@ pub fn assemble_region(region: Region, params: &Params) -> Vec<Block> {
 /// flattens the result into reading order: regions in the order `segment`
 /// produced them (left-then-right for a column cut, top-then-bottom for a
 /// row/full-width cut), blocks within a region sorted top-to-bottom then
-/// left-to-right.
-pub fn assemble(lines: Vec<Line>, params: &Params) -> Page {
+/// left-to-right. Each block's `reading_order` is assigned sequentially
+/// over that flattened order.
+pub fn assemble(lines: Vec<Line>, params: &Params, width: f64, height: f64) -> Page {
     let region = segment(lines, params);
-    let bbox = match &region {
-        Region::Leaf { bbox, .. } | Region::Split { bbox, .. } => *bbox,
-    };
-    let blocks = assemble_region(region, params);
-    Page { bbox, blocks }
+    let blocks = assemble_region(region, params)
+        .into_iter()
+        .enumerate()
+        .map(|(reading_order, block)| Block {
+            reading_order,
+            ..block
+        })
+        .collect();
+    Page {
+        width,
+        height,
+        blocks,
+    }
 }

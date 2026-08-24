@@ -76,9 +76,14 @@ def main() -> int:
     parser.add_argument('--blocks', action='store_true', help='also overlay block-level bboxes (dashed)')
     parser.add_argument('--column-gap-min', type=float, default=20.0)
     parser.add_argument('--row-gap-min', type=float, default=15.0)
+    parser.add_argument('--char-margin', type=float, default=None, help='defaults to pdfminer LAParams default')
+    parser.add_argument('--line-margin', type=float, default=None, help='defaults to pdfminer LAParams default')
+    parser.add_argument('--full-width-threshold', type=float, default=0.9)
     args = parser.parse_args()
 
-    la_params = pdfminer.layout.LAParams(all_texts=True)
+    la_params = pdfminer.layout.LAParams(all_texts=True, boxes_flow=0.5)
+    la_params.char_margin = args.char_margin or la_params.char_margin
+    la_params.line_margin = args.line_margin or la_params.line_margin
     params = laytext.Params(
         char_margin=la_params.char_margin,
         line_overlap=la_params.line_overlap,
@@ -86,11 +91,12 @@ def main() -> int:
         word_margin=la_params.word_margin,
         column_gap_min=args.column_gap_min,
         row_gap_min=args.row_gap_min,
+        full_width_threshold=args.full_width_threshold,
     )
 
     pdf = pdfium.PdfDocument(str(args.pdf))
     page = pdf[args.page]
-    page_height = page.get_size()[1]
+    page_width, page_height = page.get_size()
     scale = args.dpi / 72
 
     image = page.render(scale=scale).to_pil().convert('RGB')
@@ -110,7 +116,7 @@ def main() -> int:
             pm_line_count += 1
 
     chars = cp.extract_page_chars(page)
-    lt_page = laytext.analyze_page(chars, params)
+    lt_page = laytext.analyze_page(chars, page_width, page_height, params)
     lt_line_count = 0
     for block in lt_page.blocks:
         if args.blocks:

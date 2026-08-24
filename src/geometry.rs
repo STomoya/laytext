@@ -13,7 +13,12 @@ pub struct Rect {
 impl Rect {
     #[new]
     fn py_new(x0: f64, y0: f64, x1: f64, y1: f64) -> Self {
-        Rect { x0, y0, x1, y1 }
+        Rect {
+            x0: x0.min(x1),
+            y0: y0.min(y1),
+            x1: x0.max(x1),
+            y1: y0.max(y1),
+        }
     }
 }
 
@@ -153,6 +158,18 @@ mod tests {
             let extracted: Result<Rect, _> = obj.extract();
             assert!(extracted.is_err());
         });
+    }
+
+    #[test]
+    fn py_new_normalizes_inverted_x_coordinates() {
+        let r = Rect::py_new(5.0, 0.0, 1.0, 10.0);
+        assert_eq!(r, rect(1.0, 0.0, 5.0, 10.0));
+    }
+
+    #[test]
+    fn py_new_normalizes_inverted_y_coordinates() {
+        let r = Rect::py_new(0.0, 10.0, 5.0, 1.0);
+        assert_eq!(r, rect(0.0, 1.0, 5.0, 10.0));
     }
 
     #[test]
