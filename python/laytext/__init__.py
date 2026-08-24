@@ -6,8 +6,10 @@ from laytext._core import (
     FontInfo,
     Line,
     Page,
+    PageInput,
     Params,
     Rect,
+    analyze_document,
     analyze_page,
     group_lines,
 )
@@ -19,9 +21,11 @@ __all__ = [
     'FontInfo',
     'Line',
     'Page',
+    'PageInput',
     'Params',
     'Rect',
     '__version__',
+    'analyze_document',
     'analyze_page',
     'group_lines',
 ]

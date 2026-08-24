@@ -12,7 +12,8 @@ use assemble::assemble as assemble_impl;
 use geometry::Rect;
 use lines::group_lines as group_lines_impl;
 use params::Params;
-use types::{Block, Char, FontInfo, Line, Page};
+use rayon::prelude::*;
+use types::{Block, Char, FontInfo, Line, Page, PageInput};
 
 #[pyfunction]
 #[pyo3(name = "group_lines")]
@@ -27,14 +28,28 @@ fn analyze_page_py(chars: Vec<Char>, params: Params) -> Page {
     assemble_impl(lines, &params)
 }
 
+#[pyfunction]
+#[pyo3(name = "analyze_document")]
+fn analyze_document_py(py: Python<'_>, pages: Vec<PageInput>, params: Params) -> Vec<Page> {
+    py.detach(|| {
+        pages
+            .into_par_iter()
+            .map(|page| {
+                let lines = group_lines_impl(page.chars, &params);
+                assemble_impl(lines, &params)
+            })
+            .collect()
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{analyze_page_py, group_lines_py};
+    use super::{analyze_document_py, analyze_page_py, group_lines_py};
     use crate::assemble::assemble;
     use crate::geometry::Rect;
     use crate::lines::group_lines;
     use crate::params::Params;
-    use crate::types::Char;
+    use crate::types::{Char, PageInput};
 
     fn a_char() -> Char {
         Char {
@@ -69,6 +84,39 @@ mod tests {
         let expected = assemble(lines, &params);
         assert_eq!(analyze_page_py(chars, params), expected);
     }
+
+    #[test]
+    fn analyze_document_py_returns_one_page_per_input_page_in_order() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let params = Params {
+                column_gap_min: Some(10.0),
+                row_gap_min: Some(10.0),
+                ..Default::default()
+            };
+            let pages = vec![
+                PageInput {
+                    chars: vec![a_char()],
+                },
+                PageInput { chars: vec![] },
+            ];
+            let expected: Vec<_> = pages
+                .iter()
+                .cloned()
+                .map(|p| analyze_page_py(p.chars, params.clone()))
+                .collect();
+
+            assert_eq!(analyze_document_py(py, pages, params), expected);
+        });
+    }
+
+    #[test]
+    fn analyze_document_py_empty_batch_returns_empty_vec() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            assert_eq!(analyze_document_py(py, vec![], Params::default()), vec![]);
+        });
+    }
 }
 
 #[pymodule]
@@ -84,9 +132,13 @@ mod _core {
     #[pymodule_export]
     use crate::Page;
     #[pymodule_export]
+    use crate::PageInput;
+    #[pymodule_export]
     use crate::Params;
     #[pymodule_export]
     use crate::Rect;
+    #[pymodule_export]
+    use crate::analyze_document_py;
     #[pymodule_export]
     use crate::analyze_page_py;
     #[pymodule_export]
