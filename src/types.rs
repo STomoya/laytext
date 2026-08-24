@@ -67,16 +67,39 @@ impl Line {
     }
 }
 
-// Not yet exposed via PyO3: M3 wires bindings once Page/assemble land.
+#[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub bbox: Rect,
     pub lines: Vec<Line>,
 }
 
+#[pymethods]
+impl Block {
+    #[new]
+    fn py_new(bbox: Rect, lines: Vec<Line>) -> Self {
+        Block { bbox, lines }
+    }
+}
+
+#[pyclass(get_all, from_py_object)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct Page {
+    pub bbox: Rect,
+    pub blocks: Vec<Block>,
+}
+
+#[pymethods]
+impl Page {
+    #[new]
+    fn py_new(bbox: Rect, blocks: Vec<Block>) -> Self {
+        Page { bbox, blocks }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Char, FontInfo, Line};
+    use super::{Block, Char, FontInfo, Line, Page};
     use crate::geometry::Rect;
 
     fn rect() -> Rect {
@@ -135,6 +158,23 @@ mod tests {
     }
 
     #[test]
+    fn block_py_new_assigns_all_fields_from_arguments() {
+        let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
+        let b = Block::py_new(rect(), vec![l.clone()]);
+        assert_eq!(b.bbox, rect());
+        assert_eq!(b.lines, vec![l]);
+    }
+
+    #[test]
+    fn page_py_new_assigns_all_fields_from_arguments() {
+        let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
+        let b = Block::py_new(rect(), vec![l]);
+        let p = Page::py_new(rect(), vec![b.clone()]);
+        assert_eq!(p.bbox, rect());
+        assert_eq!(p.blocks, vec![b]);
+    }
+
+    #[test]
     fn font_info_extracts_from_python_object() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
@@ -173,6 +213,31 @@ mod tests {
     }
 
     #[test]
+    fn block_extracts_from_python_object() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
+            let b = Block::py_new(rect(), vec![l]);
+            let obj = pyo3::Py::new(py, b.clone()).unwrap();
+            let extracted: Block = obj.extract(py).unwrap();
+            assert_eq!(extracted, b);
+        });
+    }
+
+    #[test]
+    fn page_extracts_from_python_object() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)]);
+            let b = Block::py_new(rect(), vec![l]);
+            let p = Page::py_new(rect(), vec![b]);
+            let obj = pyo3::Py::new(py, p.clone()).unwrap();
+            let extracted: Page = obj.extract(py).unwrap();
+            assert_eq!(extracted, p);
+        });
+    }
+
+    #[test]
     fn font_info_extraction_fails_for_wrong_python_type() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
@@ -201,6 +266,28 @@ mod tests {
             use pyo3::types::{PyAnyMethods, PyString};
             let obj = PyString::new(py, "not a line");
             let extracted: Result<Line, _> = obj.extract();
+            assert!(extracted.is_err());
+        });
+    }
+
+    #[test]
+    fn block_extraction_fails_for_wrong_python_type() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::{PyAnyMethods, PyString};
+            let obj = PyString::new(py, "not a block");
+            let extracted: Result<Block, _> = obj.extract();
+            assert!(extracted.is_err());
+        });
+    }
+
+    #[test]
+    fn page_extraction_fails_for_wrong_python_type() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::{PyAnyMethods, PyString};
+            let obj = PyString::new(py, "not a page");
+            let extracted: Result<Page, _> = obj.extract();
             assert!(extracted.is_err());
         });
     }
