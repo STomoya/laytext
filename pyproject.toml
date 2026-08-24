@@ -27,7 +27,9 @@ build-backend = "maturin"
 [dependency-groups]
 dev = [
     "maturin[zig]>=1.14.1",
-    "pdfminer-six>=20260107",
+    # pinned: validation/compare_pdfminer.py reaches into pdfminer.layout
+    # internals (LTChar/LTPage.analyze) that aren't part of its public API.
+    "pdfminer-six==20260107",
     "pillow>=12.3.0",
     "pypdfium2>=5.13.0",
     "pytest>=9.1.1",
