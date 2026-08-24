@@ -338,6 +338,29 @@ fn alternating_full_and_narrow_lines_within_one_paragraph_are_not_split() {
 }
 
 #[test]
+fn two_line_justified_paragraph_is_not_split() {
+    // regression: bands.len() == 2 (one full-width line, one narrower
+    // wrapped line) is the most common paragraph shape and must not be
+    // force-split just because both bands happen to be singletons.
+    let params = Params {
+        column_gap_min: Some(10.0),
+        row_gap_min: Some(10.0),
+        full_width_threshold: 0.9,
+        ..Default::default()
+    };
+    let l1 = line(rect(0.0, 6.0, 395.0, 16.0)); // full width
+    let l2 = line(rect(0.0, -6.0, 150.0, 4.0)); // narrow, 2pt gap (below row_gap_min)
+    let region = segment(vec![l1.clone(), l2.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Leaf {
+            bbox: rect(0.0, -6.0, 395.0, 16.0),
+            lines: vec![l1, l2],
+        }
+    );
+}
+
+#[test]
 fn title_two_column_body_and_footer_still_splits_into_three_bands() {
     // regression: bands.len() != 2 must not reject every band count above
     // 2 - only the all-singleton-band chain that signals paragraph noise

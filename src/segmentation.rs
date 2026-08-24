@@ -23,7 +23,7 @@ pub enum Region {
 
 fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
     gaps.into_iter()
-        .max_by(|a, b| (a.1 - a.0).partial_cmp(&(b.1 - b.0)).unwrap())
+        .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
 }
 
 /// Splits `lines` into consecutive top-to-bottom bands whose lines share the
@@ -71,7 +71,7 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
     // line — that's noise, not a section boundary, so leave it to the
     // column/row whitespace-gap cuts (or a plain leaf) rather than forcing
     // it apart here.
-    if bands.len() > 2 && bands.iter().all(|b| b.len() == 1) {
+    if bands.iter().all(|b| b.len() == 1) {
         return None;
     }
 
@@ -138,4 +138,15 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
     }
 
     Region::Leaf { bbox, lines }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::widest_gap;
+
+    #[test]
+    fn widest_gap_nan_width_does_not_panic() {
+        let result = widest_gap(vec![(0.0, 5.0), (0.0, f64::NAN)]);
+        assert!(result.is_some());
+    }
 }
