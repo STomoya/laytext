@@ -35,8 +35,10 @@ const AUTO_ROW_GAP_FACTOR: f64 = 1.5;
 /// excluded from gap projection. Only "too wide" is flagged, not "too
 /// narrow" - a narrow line can't bridge a gap - which means the narrowest
 /// line in any set is provably never flagged (min <= median <= threshold
-/// whenever this factor is > 1.0), so masking can never remove every
-/// candidate interval.
+/// whenever this factor is > 1.0). For finite input this ensures masking
+/// can never remove every candidate interval; with NaN line widths the
+/// median is NaN and all comparisons fail, which can produce an empty result
+/// gracefully rather than panicking.
 const OBSTACLE_WIDTH_FACTOR: f64 = 1.25;
 
 fn median_line_height(lines: &[Line]) -> f64 {
@@ -180,7 +182,10 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
 
 /// An axis cut candidate: the two partitions plus the gap width that
 /// separates them, so callers can compare candidates across axes and pick
-/// whichever gap is actually widest.
+/// whichever gap is actually widest. Note: `gap_width` here reflects the
+/// alignment-preferred gap from `select_column_gap` (X axis) or the widest gap
+/// (Y axis), not necessarily the single widest X candidate, so it can now
+/// compare as narrower than a plain "always widest" approach would have.
 struct AxisCut {
     left_or_top: Vec<Line>,
     right_or_bottom: Vec<Line>,
@@ -658,5 +663,33 @@ mod tests {
         let intervals = vec![(0.0, f64::NAN), (10.0, 20.0), (30.0, 40.0)];
         let result = select_column_gap(&intervals, &[], 1.0);
         let _ = result; // must not panic; NaN input's specific outcome is unspecified
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_nan_width_does_not_panic() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(70.0, f64::NAN)),
+            line(rect(200.0, 250.0)),
+        ];
+        let _ = mask_bridging_obstacles(&lines);
     }
 }
