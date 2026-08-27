@@ -83,9 +83,10 @@ const TAB_STOP_ALIGN_TOLERANCE: f64 = 1.0;
 
 /// How many lines have an edge at `gap`'s boundary: `x1` at the gap's left
 /// edge (the line ends where the gap begins) or `x0` at its right edge
-/// (the line starts where the gap ends). A single line can never satisfy
-/// both at once (that would require its x0 > x1, which no valid Rect can
-/// have), so counting is unambiguous with a plain OR filter.
+/// (the line starts where the gap ends). For any gap at least `2 *
+/// TAB_STOP_ALIGN_TOLERANCE` wide (which `gap_min` guarantees in practice),
+/// a single line can satisfy at most one condition, so counting is
+/// unambiguous with a plain OR filter.
 fn tab_stop_alignment_score(gap: (f64, f64), lines: &[Line]) -> usize {
     lines
         .iter()
@@ -115,37 +116,6 @@ fn select_column_gap(
                 .then((gap_a.1 - gap_a.0).total_cmp(&(gap_b.1 - gap_b.0)))
         })
         .map(|(gap, _)| gap)
-}
-
-/// Like [`widest_gap`] over the interval projection, but tolerant of a
-/// single intruding interval (e.g. a caption/table-row line bridging a
-/// column gutter) that would otherwise merge every run together and hide
-/// the gap entirely. Only engages when the plain projection finds nothing,
-/// so it never changes behavior for a region where a gap is already found.
-///
-/// X-axis only ([`try_axis_cut_x`]): stacked lines on the Y axis are
-/// naturally non-overlapping neighbors, so excluding any one of them
-/// synthesizes a fake gap between its neighbors even in ordinary paragraph
-/// text (see git history for the regression this caused when tried on Y).
-/// Column text is safe because real paragraph lines share x-overlap (a
-/// common left/center edge), so excluding one can't manufacture a gap
-/// between the rest — only a genuine bridging intruder can.
-///
-/// ponytail: O(n^2 log n) single-interval-exclusion search, not a proper
-/// maximal-whitespace-rectangle algorithm. Upgrade if the real corpus shows
-/// intrusions from more than one interior line at once.
-fn widest_gap_tolerant(intervals: &[(f64, f64)], min_gap: f64) -> Option<(f64, f64)> {
-    let baseline = widest_gap(find_gaps(intervals, min_gap));
-    if baseline.is_some() || intervals.len() < 3 {
-        return baseline;
-    }
-    (0..intervals.len())
-        .filter_map(|i| {
-            let mut subset = intervals.to_vec();
-            subset.remove(i);
-            widest_gap(find_gaps(&subset, min_gap))
-        })
-        .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
 }
 
 /// Above this band count, banding no longer resembles a page-level title/
@@ -316,28 +286,15 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 
 #[cfg(test)]
 mod tests {
-    use super::{mask_bridging_obstacles, median_line_height, median_line_width, select_column_gap, widest_gap, widest_gap_tolerant};
+    use super::{
+        mask_bridging_obstacles, median_line_height, median_line_width, select_column_gap,
+        widest_gap,
+    };
 
     #[test]
     fn widest_gap_nan_width_does_not_panic() {
         let result = widest_gap(vec![(0.0, 5.0), (0.0, f64::NAN)]);
         assert!(result.is_some());
-    }
-
-    #[test]
-    fn widest_gap_tolerant_returns_the_widest_gap_across_all_single_line_exclusions() {
-        // Baseline (all 5 intervals) merges into a single run: bridge1
-        // connects p1 to p2, bridge2 connects p2 to p3, so nothing is found
-        // without excluding one of them. Excluding bridge1 alone reveals a
-        // 20pt gap; excluding bridge2 alone reveals a wider 30pt gap - the
-        // wider one must win, not just whichever is found first.
-        let p1 = (0.0, 10.0);
-        let bridge1 = (8.0, 32.0);
-        let p2 = (30.0, 40.0);
-        let bridge2 = (38.0, 75.0);
-        let p3 = (70.0, 130.0);
-        let intervals = vec![p1, bridge1, p2, bridge2, p3];
-        assert_eq!(widest_gap_tolerant(&intervals, 5.0), Some((40.0, 70.0)));
     }
 
     #[test]
@@ -653,7 +610,10 @@ mod tests {
         let r2 = line(rect(65.0, 140.0));
         let f = line(rect(300.0, 350.0));
         let all_lines = vec![l, r1, r2, f];
-        let masked: Vec<(f64, f64)> = all_lines.iter().map(|ln| (ln.bbox.x0, ln.bbox.x1)).collect();
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
         let result = select_column_gap(&masked, &all_lines, 5.0);
         assert_eq!(result, Some((50.0, 65.0)));
     }
@@ -685,7 +645,10 @@ mod tests {
         let b = line(rect(60.0, 100.0));
         let c = line(rect(150.0, 200.0));
         let all_lines = vec![a, b, c];
-        let masked: Vec<(f64, f64)> = all_lines.iter().map(|ln| (ln.bbox.x0, ln.bbox.x1)).collect();
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
         let result = select_column_gap(&masked, &all_lines, 5.0);
         assert_eq!(result, Some((100.0, 150.0)));
     }
