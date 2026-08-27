@@ -40,6 +40,17 @@ fn median_line_height(lines: &[Line]) -> f64 {
     }
 }
 
+fn median_line_width(lines: &[Line]) -> f64 {
+    let mut widths: Vec<f64> = lines.iter().map(|l| l.bbox.width()).collect();
+    widths.sort_by(f64::total_cmp);
+    let mid = widths.len() / 2;
+    if widths.len().is_multiple_of(2) {
+        (widths[mid - 1] + widths[mid]) / 2.0
+    } else {
+        widths[mid]
+    }
+}
+
 fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
     gaps.into_iter()
         .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
@@ -244,7 +255,7 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 
 #[cfg(test)]
 mod tests {
-    use super::{median_line_height, widest_gap, widest_gap_tolerant};
+    use super::{median_line_height, median_line_width, widest_gap, widest_gap_tolerant};
 
     #[test]
     fn widest_gap_nan_width_does_not_panic() {
@@ -346,5 +357,61 @@ mod tests {
         let params = Params::default();
 
         let _ = super::try_full_width_split(&[narrow, full], bbox, &params);
+    }
+
+    #[test]
+    fn median_line_width_odd_count_returns_middle_value() {
+        use crate::types::{Char, Line};
+
+        let widths = [5.0, 20.0, 10.0];
+        let lines: Vec<Line> = widths
+            .iter()
+            .map(|&w| {
+                let bbox = crate::geometry::Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: w,
+                    y1: 10.0,
+                };
+                Line {
+                    bbox,
+                    upright: true,
+                    chars: vec![Char {
+                        bbox,
+                        text: 'x',
+                        font: None,
+                    }],
+                }
+            })
+            .collect();
+        assert_eq!(median_line_width(&lines), 10.0);
+    }
+
+    #[test]
+    fn median_line_width_even_count_returns_average_of_middle_two() {
+        use crate::types::{Char, Line};
+
+        let widths = [10.0, 30.0];
+        let lines: Vec<Line> = widths
+            .iter()
+            .map(|&w| {
+                let bbox = crate::geometry::Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: w,
+                    y1: 10.0,
+                };
+                Line {
+                    bbox,
+                    upright: true,
+                    chars: vec![Char {
+                        bbox,
+                        text: 'x',
+                        font: None,
+                    }],
+                }
+            })
+            .collect();
+        assert_eq!(median_line_width(&lines), 20.0);
     }
 }
