@@ -29,6 +29,16 @@ pub enum Region {
 const AUTO_COLUMN_GAP_FACTOR: f64 = 2.0;
 const AUTO_ROW_GAP_FACTOR: f64 = 1.5;
 
+/// `line.bbox.width()` outlier factor for the X-axis obstacle mask: a line
+/// wider than this times the region's median line width is treated as a
+/// bridging obstacle (a caption/table-row spanning a column gutter) and
+/// excluded from gap projection. Only "too wide" is flagged, not "too
+/// narrow" - a narrow line can't bridge a gap - which means the narrowest
+/// line in any set is provably never flagged (min <= median <= threshold
+/// whenever this factor is > 1.0), so masking can never remove every
+/// candidate interval.
+const OBSTACLE_WIDTH_FACTOR: f64 = 1.25;
+
 fn median_line_height(lines: &[Line]) -> f64 {
     let mut heights: Vec<f64> = lines.iter().map(|l| l.bbox.height()).collect();
     heights.sort_by(f64::total_cmp);
@@ -49,6 +59,15 @@ fn median_line_width(lines: &[Line]) -> f64 {
     } else {
         widths[mid]
     }
+}
+
+fn mask_bridging_obstacles(lines: &[Line]) -> Vec<(f64, f64)> {
+    let threshold = OBSTACLE_WIDTH_FACTOR * median_line_width(lines);
+    lines
+        .iter()
+        .filter(|l| l.bbox.width() <= threshold)
+        .map(|l| (l.bbox.x0, l.bbox.x1))
+        .collect()
 }
 
 fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
@@ -255,7 +274,7 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 
 #[cfg(test)]
 mod tests {
-    use super::{median_line_height, median_line_width, widest_gap, widest_gap_tolerant};
+    use super::{mask_bridging_obstacles, median_line_height, median_line_width, widest_gap, widest_gap_tolerant};
 
     #[test]
     fn widest_gap_nan_width_does_not_panic() {
@@ -413,5 +432,141 @@ mod tests {
             })
             .collect();
         assert_eq!(median_line_width(&lines), 20.0);
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_keeps_all_lines_when_widths_are_uniform() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // all width 50.0: nothing is a width outlier
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(70.0, 120.0)),
+            line(rect(200.0, 250.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 50.0), (70.0, 120.0), (200.0, 250.0)]
+        );
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_excludes_a_lone_wide_outlier() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // widths [50, 50, 150]; median 50.0, threshold 62.5: only the 150-wide
+        // line (a caption/table-row bridging a gutter) is excluded.
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(70.0, 120.0)),
+            line(rect(150.0, 300.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 50.0), (70.0, 120.0)]
+        );
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_excludes_multiple_simultaneous_outliers() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // widths [50, 50, 200, 210]; median 125.0, threshold 156.25: both wide
+        // lines are excluded simultaneously - the case the old single-exclusion
+        // widest_gap_tolerant could never handle.
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(60.0, 110.0)),
+            line(rect(0.0, 200.0)),
+            line(rect(10.0, 220.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 50.0), (60.0, 110.0)]
+        );
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_never_excludes_the_narrowest_line() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // widths [1, 1, 1, 100, 100, 100]; median 50.5, threshold 63.125: the
+        // majority (the three 100-wide lines) get excluded, but the narrowest
+        // line can never be excluded for any OBSTACLE_WIDTH_FACTOR > 1.0 (the
+        // minimum of any set is always <= its median, so it's always <= the
+        // threshold too) - this is why mask_bridging_obstacles needs no
+        // "masked everything" guard: that state is unreachable.
+        let lines = vec![
+            line(rect(0.0, 1.0)),
+            line(rect(10.0, 11.0)),
+            line(rect(20.0, 21.0)),
+            line(rect(100.0, 200.0)),
+            line(rect(300.0, 400.0)),
+            line(rect(500.0, 600.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 1.0), (10.0, 11.0), (20.0, 21.0)]
+        );
     }
 }
