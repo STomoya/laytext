@@ -42,6 +42,9 @@ const AUTO_ROW_GAP_FACTOR: f64 = 1.5;
 const OBSTACLE_WIDTH_FACTOR: f64 = 1.25;
 
 fn median_line_height(lines: &[Line]) -> f64 {
+    if lines.is_empty() {
+        return 0.0;
+    }
     let mut heights: Vec<f64> = lines.iter().map(|l| l.bbox.height()).collect();
     heights.sort_by(f64::total_cmp);
     let mid = heights.len() / 2;
@@ -97,6 +100,23 @@ fn tab_stop_alignment_score(gap: (f64, f64), lines: &[Line]) -> usize {
                 || (l.bbox.x0 - gap.1).abs() <= TAB_STOP_ALIGN_TOLERANCE
         })
         .count()
+}
+
+/// How similar the median line height is between the two tentative sides of
+/// `gap` (partitioned the same way [`try_axis_cut_x`] partitions its chosen
+/// gap, but per-candidate before a gap is chosen): 1.0 when the two sides'
+/// median heights match exactly, decreasing as they diverge. A genuine
+/// column split tends to have similar body-text sizes on both sides; a
+/// spurious gap is more likely to separate mismatched content (e.g. a
+/// caption/sidebar region from body text).
+#[allow(dead_code)]
+fn gap_height_similarity(gap: (f64, f64), lines: &[Line]) -> f64 {
+    let mid = (gap.0 + gap.1) / 2.0;
+    let (left, right): (Vec<Line>, Vec<Line>) = lines
+        .iter()
+        .cloned()
+        .partition(|l| (l.bbox.x0 + l.bbox.x1) / 2.0 < mid);
+    1.0 / (1.0 + (median_line_height(&left) - median_line_height(&right)).abs())
 }
 
 /// Picks the best candidate gap from `masked_intervals` (typically
@@ -292,8 +312,8 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 #[cfg(test)]
 mod tests {
     use super::{
-        mask_bridging_obstacles, median_line_height, median_line_width, select_column_gap,
-        widest_gap,
+        gap_height_similarity, mask_bridging_obstacles, median_line_height, median_line_width,
+        select_column_gap, widest_gap,
     };
 
     #[test]
@@ -356,6 +376,11 @@ mod tests {
             })
             .collect();
         assert_eq!(median_line_height(&lines), 20.0);
+    }
+
+    #[test]
+    fn median_line_height_empty_returns_zero() {
+        assert_eq!(median_line_height(&[]), 0.0);
     }
 
     #[test]
@@ -691,5 +716,83 @@ mod tests {
             line(rect(200.0, 250.0)),
         ];
         let _ = mask_bridging_obstacles(&lines);
+    }
+
+    #[test]
+    fn gap_height_similarity_returns_one_when_both_sides_match() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        let left = line(rect(0.0, 50.0));
+        let right = line(rect(70.0, 120.0));
+        assert_eq!(gap_height_similarity((50.0, 70.0), &[left, right]), 1.0);
+    }
+
+    #[test]
+    fn gap_height_similarity_decreases_as_medians_diverge() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64, y1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // left height 20, right height 10: diff 10 -> 1 / (1 + 10).
+        let left = line(rect(0.0, 50.0, 20.0));
+        let right = line(rect(70.0, 120.0, 10.0));
+        assert_eq!(
+            gap_height_similarity((50.0, 70.0), &[left, right]),
+            1.0 / 11.0
+        );
+    }
+
+    #[test]
+    fn gap_height_similarity_empty_side_does_not_panic() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let only = Line {
+            bbox: rect(0.0, 50.0),
+            upright: true,
+            chars: vec![Char {
+                bbox: rect(0.0, 50.0),
+                text: 'x',
+                font: None,
+            }],
+        };
+        // gap (100,200) sits entirely to the right of the only line, so its
+        // right partition is empty - must not panic (median_line_height's
+        // empty guard from Step 3 covers this).
+        let result = gap_height_similarity((100.0, 200.0), &[only]);
+        assert!(result.is_finite());
     }
 }
