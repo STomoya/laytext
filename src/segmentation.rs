@@ -75,6 +75,48 @@ fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
         .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
 }
 
+/// Distance tolerance (points) for treating a line's edge as "the same"
+/// boundary as a candidate gap's edge, when counting how many lines
+/// corroborate that gap as a real, repeated column tab-stop rather than an
+/// incidental one-off gap.
+const TAB_STOP_ALIGN_TOLERANCE: f64 = 1.0;
+
+/// How many lines have an edge at `gap`'s boundary: `x1` at the gap's left
+/// edge (the line ends where the gap begins) or `x0` at its right edge
+/// (the line starts where the gap ends). A single line can never satisfy
+/// both at once (that would require its x0 > x1, which no valid Rect can
+/// have), so counting is unambiguous with a plain OR filter.
+fn tab_stop_alignment_score(gap: (f64, f64), lines: &[Line]) -> usize {
+    lines
+        .iter()
+        .filter(|l| {
+            (l.bbox.x1 - gap.0).abs() <= TAB_STOP_ALIGN_TOLERANCE
+                || (l.bbox.x0 - gap.1).abs() <= TAB_STOP_ALIGN_TOLERANCE
+        })
+        .count()
+}
+
+/// Picks the best candidate gap from `masked_intervals` (typically
+/// [`mask_bridging_obstacles`]'s output): highest tab-stop alignment score
+/// first, gap width as the tie-break. With zero or one candidate the
+/// alignment score can't matter, so this never changes behavior versus a
+/// plain widest-gap pick for the common single-candidate case.
+fn select_column_gap(
+    masked_intervals: &[(f64, f64)],
+    all_lines: &[Line],
+    gap_min: f64,
+) -> Option<(f64, f64)> {
+    find_gaps(masked_intervals, gap_min)
+        .into_iter()
+        .map(|gap| (gap, tab_stop_alignment_score(gap, all_lines)))
+        .max_by(|(gap_a, score_a), (gap_b, score_b)| {
+            score_a
+                .cmp(score_b)
+                .then((gap_a.1 - gap_a.0).total_cmp(&(gap_b.1 - gap_b.0)))
+        })
+        .map(|(gap, _)| gap)
+}
+
 /// Like [`widest_gap`] over the interval projection, but tolerant of a
 /// single intruding interval (e.g. a caption/table-row line bridging a
 /// column gutter) that would otherwise merge every run together and hide
@@ -274,7 +316,7 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 
 #[cfg(test)]
 mod tests {
-    use super::{mask_bridging_obstacles, median_line_height, median_line_width, widest_gap, widest_gap_tolerant};
+    use super::{mask_bridging_obstacles, median_line_height, median_line_width, select_column_gap, widest_gap, widest_gap_tolerant};
 
     #[test]
     fn widest_gap_nan_width_does_not_panic() {
@@ -568,5 +610,90 @@ mod tests {
             mask_bridging_obstacles(&lines),
             vec![(0.0, 1.0), (10.0, 11.0), (20.0, 21.0)]
         );
+    }
+
+    #[test]
+    fn select_column_gap_returns_none_when_no_candidates_exist() {
+        // a single interval: no gap possible
+        let result = select_column_gap(&[(0.0, 50.0)], &[], 5.0);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn select_column_gap_picks_the_only_candidate_when_just_one_exists() {
+        let result = select_column_gap(&[(0.0, 50.0), (70.0, 120.0)], &[], 5.0);
+        assert_eq!(result, Some((50.0, 70.0)));
+    }
+
+    #[test]
+    fn select_column_gap_prefers_higher_alignment_score_over_wider_gap() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: (0,50), (65,140) [65,100 + 65,140 merged], (300,350).
+        // Candidate (50,65), width 15: L(x1=50) + R1,R2(x0=65) align -> score 3.
+        // Candidate (140,300), width 160: only R2(x1=140) + F(x0=300) align -> score 2.
+        // The narrower, better-aligned gap must win despite being far narrower.
+        let l = line(rect(0.0, 50.0));
+        let r1 = line(rect(65.0, 100.0));
+        let r2 = line(rect(65.0, 140.0));
+        let f = line(rect(300.0, 350.0));
+        let all_lines = vec![l, r1, r2, f];
+        let masked: Vec<(f64, f64)> = all_lines.iter().map(|ln| (ln.bbox.x0, ln.bbox.x1)).collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((50.0, 65.0)));
+    }
+
+    #[test]
+    fn select_column_gap_breaks_alignment_ties_by_width() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: (0,50), (60,100), (150,200). Both candidate gaps have exactly
+        // one line touching each side (score 2 each) - a tie, so the wider
+        // gap (100,150) must win, matching the pre-existing widest-gap
+        // behavior for this shape of input.
+        let a = line(rect(0.0, 50.0));
+        let b = line(rect(60.0, 100.0));
+        let c = line(rect(150.0, 200.0));
+        let all_lines = vec![a, b, c];
+        let masked: Vec<(f64, f64)> = all_lines.iter().map(|ln| (ln.bbox.x0, ln.bbox.x1)).collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((100.0, 150.0)));
+    }
+
+    #[test]
+    fn select_column_gap_nan_interval_does_not_panic() {
+        let intervals = vec![(0.0, f64::NAN), (10.0, 20.0), (30.0, 40.0)];
+        let result = select_column_gap(&intervals, &[], 1.0);
+        let _ = result; // must not panic; NaN input's specific outcome is unspecified
     }
 }
