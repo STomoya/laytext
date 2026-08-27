@@ -218,8 +218,8 @@ struct AxisCut {
 }
 
 fn try_axis_cut_x(lines: &[Line], gap_min: f64) -> Option<AxisCut> {
-    let intervals: Vec<(f64, f64)> = lines.iter().map(|l| (l.bbox.x0, l.bbox.x1)).collect();
-    let gap = widest_gap_tolerant(&intervals, gap_min)?;
+    let masked = mask_bridging_obstacles(lines);
+    let gap = select_column_gap(&masked, lines, gap_min)?;
     let mid = (gap.0 + gap.1) / 2.0;
     let (left, right): (Vec<Line>, Vec<Line>) = lines
         .iter()
