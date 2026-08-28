@@ -236,8 +236,10 @@ fn estimate_page_skew_robust_to_a_single_outlier_band() {
     }
     // One extreme-angle outlier band (mirrors the spike's observed
     // formula/watermark outliers), well separated in y from every flat
-    // band.
-    let outlier_angle_rad = 45.0_f64.to_radians();
+    // band. Angle chosen so per-step y-drift (~7.3) fits within the
+    // bucketing window (15.0), allowing all 4 chars to correctly merge
+    // into one band before fitting.
+    let outlier_angle_rad = 20.0_f64.to_radians();
     let outlier_baseline = -500.0;
     for i in 0..4 {
         let x0 = (i as f64) * 20.0;
@@ -245,8 +247,9 @@ fn estimate_page_skew_robust_to_a_single_outlier_band() {
         let y0 = outlier_baseline - drift;
         chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
     }
-    // Median of [0, 0, 0, 0, 0, ~45] = 0.0 exactly: the outlier never
-    // moves the page-level estimate (median, not mean, discipline).
+    // Median of [0, 0, 0, 0, 0, ~20] = 0.0 exactly: the outlier band
+    // is correctly fit and included, but the median discipline (not mean)
+    // keeps the page estimate at 0.0.
     assert_eq!(estimate_page_skew(&chars), 0.0);
 }
 
