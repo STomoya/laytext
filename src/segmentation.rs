@@ -109,7 +109,6 @@ fn tab_stop_alignment_score(gap: (f64, f64), lines: &[Line]) -> usize {
 /// column split tends to have similar body-text sizes on both sides; a
 /// spurious gap is more likely to separate mismatched content (e.g. a
 /// caption/sidebar region from body text).
-#[allow(dead_code)]
 fn gap_height_similarity(gap: (f64, f64), lines: &[Line]) -> f64 {
     let mid = (gap.0 + gap.1) / 2.0;
     let (left, right): (Vec<Line>, Vec<Line>) = lines
@@ -121,9 +120,11 @@ fn gap_height_similarity(gap: (f64, f64), lines: &[Line]) -> f64 {
 
 /// Picks the best candidate gap from `masked_intervals` (typically
 /// [`mask_bridging_obstacles`]'s output): highest tab-stop alignment score
-/// first, gap width as the tie-break. With zero or one candidate the
-/// alignment score can't matter, so this never changes behavior versus a
-/// plain widest-gap pick for the common single-candidate case.
+/// first; ties broken by the more similar median line height between the
+/// gap's two tentative sides ([`gap_height_similarity`]); gap width as the
+/// final tie-break. With zero or one candidate neither tie-break can
+/// matter, so this never changes behavior versus a plain widest-gap pick
+/// for the common single-candidate case.
 fn select_column_gap(
     masked_intervals: &[(f64, f64)],
     all_lines: &[Line],
@@ -131,13 +132,20 @@ fn select_column_gap(
 ) -> Option<(f64, f64)> {
     find_gaps(masked_intervals, gap_min)
         .into_iter()
-        .map(|gap| (gap, tab_stop_alignment_score(gap, all_lines)))
-        .max_by(|(gap_a, score_a), (gap_b, score_b)| {
+        .map(|gap| {
+            (
+                gap,
+                tab_stop_alignment_score(gap, all_lines),
+                gap_height_similarity(gap, all_lines),
+            )
+        })
+        .max_by(|(gap_a, score_a, sim_a), (gap_b, score_b, sim_b)| {
             score_a
                 .cmp(score_b)
+                .then(sim_a.total_cmp(sim_b))
                 .then((gap_a.1 - gap_a.0).total_cmp(&(gap_b.1 - gap_b.0)))
         })
-        .map(|(gap, _)| gap)
+        .map(|(gap, _, _)| gap)
 }
 
 /// Above this band count, banding no longer resembles a page-level title/
@@ -203,9 +211,10 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
 /// An axis cut candidate: the two partitions plus the gap width that
 /// separates them, so callers can compare candidates across axes and pick
 /// whichever gap is actually widest. Note: `gap_width` here reflects the
-/// alignment-preferred gap from `select_column_gap` (X axis) or the widest gap
-/// (Y axis), not necessarily the single widest X candidate, so it can now
-/// compare as narrower than a plain "always widest" approach would have.
+/// alignment/height-similarity-preferred gap from `select_column_gap` (X
+/// axis) or the widest gap (Y axis), not necessarily the single widest X
+/// candidate, so it can now compare as narrower than a plain "always widest"
+/// approach would have.
 struct AxisCut {
     left_or_top: Vec<Line>,
     right_or_bottom: Vec<Line>,
@@ -681,6 +690,86 @@ mod tests {
             .collect();
         let result = select_column_gap(&masked, &all_lines, 5.0);
         assert_eq!(result, Some((100.0, 150.0)));
+    }
+
+    #[test]
+    fn select_column_gap_height_similarity_breaks_alignment_tie() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64, y1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: A(0,50) h10, B(70,120) h10, C(200,260) h100. Gap(50,70)
+        // score 2 (A.x1, B.x0 align); Gap(120,200) score 2 (B.x1, C.x0
+        // align) - tied. Height similarity: Gap(50,70) sides are
+        // [A]=10 vs [B,C]=median(10,100)=55 -> sim ~= 1/46. Gap(120,200)
+        // sides are [A,B]=median(10,10)=10 vs [C]=100 -> sim ~= 1/91. The
+        // first gap is more height-similar despite being far narrower (20
+        // vs 80), so it must win even though the old width-only tie-break
+        // would have picked the wider one.
+        let a = line(rect(0.0, 50.0, 10.0));
+        let b = line(rect(70.0, 120.0, 10.0));
+        let c = line(rect(200.0, 260.0, 100.0));
+        let all_lines = vec![a, b, c];
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((50.0, 70.0)));
+    }
+
+    #[test]
+    fn select_column_gap_alignment_score_still_wins_despite_worse_height_similarity() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64, y1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: (0,50) h100, (65,140) [65,100 h10 + 65,140 h10 merged],
+        // (300,350) h10. Candidate (50,65) score 3 (l.x1, r1.x0, r2.x0
+        // align) but poor height similarity: [l]=100 vs [r1,r2,f]=median
+        // (10,10,10)=10 -> sim ~= 1/91. Candidate (140,300) score 2 (r2.x1,
+        // f.x0 align) but perfect height similarity: [l,r1,r2]=median
+        // (100,10,10)=10 vs [f]=10 -> sim = 1.0. The higher-alignment
+        // candidate must still win despite being drastically less
+        // height-similar - this tier only breaks ties, never overrides
+        // alignment.
+        let l = line(rect(0.0, 50.0, 100.0));
+        let r1 = line(rect(65.0, 100.0, 10.0));
+        let r2 = line(rect(65.0, 140.0, 10.0));
+        let f = line(rect(300.0, 350.0, 10.0));
+        let all_lines = vec![l, r1, r2, f];
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((50.0, 65.0)));
     }
 
     #[test]

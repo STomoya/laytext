@@ -725,3 +725,45 @@ fn title_two_column_body_and_footer_still_splits_into_three_bands() {
         }
     );
 }
+
+#[test]
+fn height_similarity_breaks_an_alignment_tie_end_to_end() {
+    // Runs: A(0,50) h10, B(70,120) h10, C(200,260) h100. Gap(50,70) and
+    // Gap(120,200) both have tab-stop alignment score 2 (A.x1/B.x0 align;
+    // B.x1/C.x0 align) - a tie. A's height (10) is far closer to B's (10)
+    // than C's (100), so the narrower gap (50,70) is the more
+    // height-similar split and must win over the wider (120,200), even
+    // though a plain width tie-break would have picked the wider one.
+    let params = params_with_gaps(Some(5.0), Some(1000.0));
+    let a = line(rect(0.0, 0.0, 50.0, 10.0));
+    let b = line(rect(70.0, 0.0, 120.0, 10.0));
+    let c = line(rect(200.0, 0.0, 260.0, 100.0));
+    let region = segment(vec![a.clone(), b.clone(), c.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 260.0, 100.0),
+            orientation: Orientation::Vertical,
+            children: vec![
+                Region::Leaf {
+                    bbox: a.bbox,
+                    lines: vec![a],
+                },
+                Region::Split {
+                    bbox: rect(70.0, 0.0, 260.0, 100.0),
+                    orientation: Orientation::Vertical,
+                    children: vec![
+                        Region::Leaf {
+                            bbox: b.bbox,
+                            lines: vec![b],
+                        },
+                        Region::Leaf {
+                            bbox: c.bbox,
+                            lines: vec![c],
+                        },
+                    ],
+                },
+            ],
+        }
+    );
+}
