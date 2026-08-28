@@ -1,6 +1,7 @@
 use _core::geometry::Rect;
 use _core::lines::group_lines;
 use _core::params::Params;
+use _core::skew::estimate_page_skew;
 use _core::types::Char;
 
 fn ch(x0: f64, y0: f64, x1: f64, y1: f64) -> Char {
@@ -189,4 +190,73 @@ fn multiple_lines_preserve_order_across_a_run_of_chars() {
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0].chars, vec![a]);
     assert_eq!(lines[1].chars, vec![b, c]);
+}
+
+#[test]
+fn estimate_page_skew_returns_zero_for_empty_input() {
+    assert_eq!(estimate_page_skew(&[]), 0.0);
+}
+
+#[test]
+fn estimate_page_skew_returns_zero_when_too_little_text_to_estimate_confidently() {
+    // A single 4-char band (one band, under the 3-band minimum for a
+    // confident page-level estimate) must not produce a guess from noise.
+    let chars = vec![
+        ch(0.0, 100.0, 6.0, 110.0),
+        ch(20.0, 100.0, 26.0, 110.0),
+        ch(40.0, 100.0, 46.0, 110.0),
+        ch(60.0, 100.0, 66.0, 110.0),
+    ];
+    assert_eq!(estimate_page_skew(&chars), 0.0);
+}
+
+#[test]
+fn estimate_page_skew_is_zero_for_axis_aligned_text() {
+    let mut chars = Vec::new();
+    for band in 0..3 {
+        let y0 = 300.0 - (band as f64) * 100.0;
+        for i in 0..4 {
+            let x0 = (i as f64) * 20.0;
+            chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
+        }
+    }
+    assert_eq!(estimate_page_skew(&chars), 0.0);
+}
+
+#[test]
+fn estimate_page_skew_robust_to_a_single_outlier_band() {
+    let mut chars = Vec::new();
+    // 5 flat (0 degree) bands, well separated in y.
+    for band in 0..5 {
+        let y0 = 1000.0 - (band as f64) * 100.0;
+        for i in 0..4 {
+            let x0 = (i as f64) * 20.0;
+            chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
+        }
+    }
+    // One extreme-angle outlier band (mirrors the spike's observed
+    // formula/watermark outliers), well separated in y from every flat
+    // band.
+    let outlier_angle_rad = 45.0_f64.to_radians();
+    let outlier_baseline = -500.0;
+    for i in 0..4 {
+        let x0 = (i as f64) * 20.0;
+        let drift = x0 * outlier_angle_rad.tan();
+        let y0 = outlier_baseline - drift;
+        chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
+    }
+    // Median of [0, 0, 0, 0, 0, ~45] = 0.0 exactly: the outlier never
+    // moves the page-level estimate (median, not mean, discipline).
+    assert_eq!(estimate_page_skew(&chars), 0.0);
+}
+
+#[test]
+fn estimate_page_skew_nan_bbox_does_not_panic() {
+    let chars = vec![
+        ch(0.0, f64::NAN, 6.0, 10.0),
+        ch(20.0, 100.0, 26.0, 110.0),
+        ch(40.0, 100.0, 46.0, 110.0),
+        ch(60.0, 100.0, 66.0, 110.0),
+    ];
+    let _ = estimate_page_skew(&chars); // must not panic
 }
