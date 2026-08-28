@@ -1,4 +1,5 @@
 use _core::geometry::Rect;
+use _core::geometry::union_all;
 use _core::lines::group_lines;
 use _core::params::Params;
 use _core::skew::estimate_page_skew;
@@ -262,4 +263,78 @@ fn estimate_page_skew_nan_bbox_does_not_panic() {
         ch(60.0, 100.0, 66.0, 110.0),
     ];
     let _ = estimate_page_skew(&chars); // must not panic
+}
+
+#[test]
+fn skewed_lines_group_correctly_and_output_geometry_is_never_sheared() {
+    // Three page-level "lines" (bands), each with a small, consistent
+    // 1.5deg skew (drift = pitch * tan(1.5deg) per char step, ~5.24pt)
+    // large enough that WITHOUT correction halign's voverlap check fails
+    // between adjacent chars (drift > height(10) * (1 - line_overlap(0.5))
+    // = 5), fragmenting each band into 4 separate single-char lines. A
+    // generous char_margin keeps the horizontal-gap check passing
+    // regardless of correction, isolating the vertical-drift effect under
+    // test. After correction each band must merge into one Line, and the
+    // output chars/bbox must exactly match the original, uncorrected
+    // input coordinates (the shear must never leak into output geometry).
+    let params = Params {
+        char_margin: 25.0,
+        // Isolates the vertical-drift effect under test: at pitch=200 with
+        // 10pt-wide chars, the real horizontal gap (190pt) exceeds the
+        // default word_margin threshold and would otherwise insert
+        // synthetic space chars, unrelated to skew correction.
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    let pitch = 200.0;
+    let drift_per_step = pitch * 1.5_f64.to_radians().tan();
+
+    let band = |baseline_y: f64| -> Vec<Char> {
+        (0..4)
+            .map(|i| {
+                let x0 = (i as f64) * pitch;
+                let y0 = baseline_y - (i as f64) * drift_per_step;
+                ch(x0, y0, x0 + 10.0, y0 + 10.0)
+            })
+            .collect()
+    };
+
+    let band0 = band(200.0);
+    let band1 = band(100.0);
+    let band2 = band(0.0);
+    let chars: Vec<Char> = band0
+        .iter()
+        .chain(band1.iter())
+        .chain(band2.iter())
+        .cloned()
+        .collect();
+
+    let lines = group_lines(chars, &params);
+
+    assert_eq!(lines.len(), 3);
+    for (line, expected_band) in lines.iter().zip([&band0, &band1, &band2]) {
+        assert_eq!(&line.chars, expected_band);
+        assert_eq!(line.bbox, union_all(expected_band.iter().map(|c| c.bbox)));
+    }
+}
+
+#[test]
+fn zero_skew_page_produces_unchanged_grouping_output() {
+    // Perfectly flat text (no skew): the estimate is 0.0, well under the
+    // noise floor, so group_lines must behave exactly as it did before
+    // this feature existed - the primary no-regression guarantee.
+    let params = Params::default();
+    let mut chars = Vec::new();
+    for band in 0..3 {
+        let y0 = 300.0 - (band as f64) * 100.0;
+        for i in 0..4 {
+            let x0 = (i as f64) * 6.5;
+            chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
+        }
+    }
+    let lines = group_lines(chars.clone(), &params);
+    assert_eq!(lines.len(), 3);
+    for (line, band_chars) in lines.iter().zip(chars.chunks(4)) {
+        assert_eq!(line.chars, band_chars.to_vec());
+    }
 }

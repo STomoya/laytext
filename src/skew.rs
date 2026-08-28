@@ -93,7 +93,6 @@ fn median(mut values: Vec<f64>) -> f64 {
 /// originating spike's median of 0.02°) a no-op, both for correctness (no
 /// risk of the estimate's own noise perturbing an already-fine page) and
 /// for performance (skip the extra pass).
-#[allow(dead_code)]
 pub(crate) const SKEW_NOISE_FLOOR_DEGREES: f64 = 0.15;
 
 /// Shear-corrects a working copy of each char's bbox for use in grouping
@@ -101,7 +100,6 @@ pub(crate) const SKEW_NOISE_FLOOR_DEGREES: f64 = 0.15;
 /// horizontal bbox center as `x`. Never mutates or returns the original
 /// `Char`s; callers must keep using the original, uncorrected bboxes for
 /// anything that ends up in output geometry.
-#[allow(dead_code)]
 pub(crate) fn shear_correct_bboxes(chars: &[Char], angle_degrees: f64) -> Vec<Rect> {
     let shift_per_x = angle_degrees.to_radians().tan();
     chars
