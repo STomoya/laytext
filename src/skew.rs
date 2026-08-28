@@ -1,3 +1,4 @@
+use crate::geometry::Rect;
 use crate::types::Char;
 
 /// Below this many chars, a band's angle isn't fit at all — mirrors the
@@ -86,6 +87,38 @@ fn median(mut values: Vec<f64>) -> f64 {
     }
 }
 
+/// Below this estimated angle, correction is skipped entirely and
+/// `group_lines` runs exactly as before this feature existed — keeps the
+/// common case (the vast majority of real-corpus pages, per the
+/// originating spike's median of 0.02°) a no-op, both for correctness (no
+/// risk of the estimate's own noise perturbing an already-fine page) and
+/// for performance (skip the extra pass).
+#[allow(dead_code)]
+pub(crate) const SKEW_NOISE_FLOOR_DEGREES: f64 = 0.15;
+
+/// Shear-corrects a working copy of each char's bbox for use in grouping
+/// *decisions only* — `y' = y - x * tan(angle)`, using each char's
+/// horizontal bbox center as `x`. Never mutates or returns the original
+/// `Char`s; callers must keep using the original, uncorrected bboxes for
+/// anything that ends up in output geometry.
+#[allow(dead_code)]
+pub(crate) fn shear_correct_bboxes(chars: &[Char], angle_degrees: f64) -> Vec<Rect> {
+    let shift_per_x = angle_degrees.to_radians().tan();
+    chars
+        .iter()
+        .map(|c| {
+            let x_center = (c.bbox.x0 + c.bbox.x1) / 2.0;
+            let shift = x_center * shift_per_x;
+            Rect {
+                x0: c.bbox.x0,
+                x1: c.bbox.x1,
+                y0: c.bbox.y0 - shift,
+                y1: c.bbox.y1 - shift,
+            }
+        })
+        .collect()
+}
+
 /// Estimates a page's dominant skew angle in degrees (`0.0` if there's
 /// too little text to estimate confidently), via a permissive band
 /// bucketing + per-band least-squares fit, aggregated by median (robust
@@ -101,7 +134,7 @@ pub fn estimate_page_skew(chars: &[Char]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{fit_slope, median, median_char_height};
+    use super::{fit_slope, median, median_char_height, shear_correct_bboxes};
     use crate::geometry::Rect;
     use crate::types::Char;
 
@@ -156,5 +189,40 @@ mod tests {
     #[test]
     fn median_even_count_returns_average_of_middle_two() {
         assert_eq!(median(vec![1.0, 2.0, 3.0, 4.0]), 2.5);
+    }
+
+    #[test]
+    fn shear_correct_bboxes_shifts_y_by_x_center_times_tan_angle() {
+        let chars = vec![ch(0.0, 100.0, 10.0, 110.0), ch(100.0, 100.0, 110.0, 110.0)];
+        let angle = 10.0;
+        let corrected = shear_correct_bboxes(&chars, angle);
+
+        let shift0 = 5.0 * angle.to_radians().tan();
+        let shift1 = 105.0 * angle.to_radians().tan();
+        assert_eq!(corrected[0].y0, 100.0 - shift0);
+        assert_eq!(corrected[0].y1, 110.0 - shift0);
+        assert_eq!(corrected[1].y0, 100.0 - shift1);
+        assert_eq!(corrected[1].y1, 110.0 - shift1);
+    }
+
+    #[test]
+    fn shear_correct_bboxes_leaves_x_unchanged() {
+        let chars = vec![ch(0.0, 100.0, 10.0, 110.0)];
+        let corrected = shear_correct_bboxes(&chars, 10.0);
+        assert_eq!(corrected[0].x0, 0.0);
+        assert_eq!(corrected[0].x1, 10.0);
+    }
+
+    #[test]
+    fn shear_correct_bboxes_zero_angle_is_identity() {
+        let chars = vec![ch(0.0, 100.0, 10.0, 110.0), ch(50.0, 5.0, 60.0, 20.0)];
+        let corrected = shear_correct_bboxes(&chars, 0.0);
+        assert_eq!(corrected[0], chars[0].bbox);
+        assert_eq!(corrected[1], chars[1].bbox);
+    }
+
+    #[test]
+    fn shear_correct_bboxes_empty_input_returns_empty() {
+        assert_eq!(shear_correct_bboxes(&[], 5.0), Vec::<Rect>::new());
     }
 }
