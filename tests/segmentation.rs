@@ -101,9 +101,10 @@ fn intruding_line_across_gutter_does_not_block_the_column_cut() {
     // overlaps both columns, so projecting it alongside the columns merges
     // every run into one and the plain gap search finds nothing on either
     // axis (same y-range on all three lines, so there's no row-gap escape
-    // hatch either). Excluding just this one line should still reveal the
-    // 20pt column gap; the excluded line then lands on whichever side its
-    // center sits nearer (105 < the gap's 110 midpoint: the left column).
+    // hatch either). Masking this line as a width outlier (130pt vs. the
+    // other lines' 100pt) should still reveal the 20pt column gap; the
+    // masked line then lands on whichever side its center sits nearer
+    // (105 < the gap's 110 midpoint: the left column).
     let params = params_with_gaps(Some(10.0), Some(10.0));
     let left = line(rect(0.0, 0.0, 100.0, 10.0));
     let right = line(rect(120.0, 0.0, 220.0, 10.0));
@@ -374,8 +375,8 @@ fn wider_row_gap_wins_over_narrower_column_gap() {
     // vertical-before-horizontal order splits into left/right columns
     // (each spanning both rows) before ever comparing against the far
     // wider row gap (110pt) that actually separates two unrelated bands.
-    // The widest gap overall should win regardless of axis: splitting
-    // top/bottom first, each then splitting into its own left/right pair.
+    // The wider gap should win regardless of axis: splitting top/bottom
+    // first, each then splitting into its own left/right pair.
     let params = params_with_gaps(Some(5.0), Some(5.0));
     let top_left = line(rect(0.0, 120.0, 40.0, 130.0));
     let top_right = line(rect(50.0, 120.0, 100.0, 130.0)); // 10pt gap from top_left

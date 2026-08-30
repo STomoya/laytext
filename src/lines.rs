@@ -120,8 +120,10 @@ fn valign_ratio(a: &Rect, b: &Rect, params: &Params) -> f64 {
     )
 }
 
-/// Groups a page's chars into lines. Direct port of pdfminer's
-/// `LTLayoutContainer.group_objects`. Input must already be in roughly
+/// Groups a page's chars into lines. Port of pdfminer's
+/// `LTLayoutContainer.group_objects`, with a skew-correction pre-pass
+/// (`estimate_page_skew`/`shear_correct_bboxes`) that only affects grouping
+/// decisions, never the output geometry. Input must already be in roughly
 /// reading order (pdfminer relies on PDF content-stream order); this
 /// function does not sort.
 pub fn group_lines(chars: Vec<Char>, params: &Params) -> Vec<Line> {

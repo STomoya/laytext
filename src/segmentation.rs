@@ -254,11 +254,12 @@ fn try_axis_cut_y(lines: &[Line], gap_min: f64) -> Option<AxisCut> {
 /// Recursively partitions a page's lines into a `Region` tree via an X-Y
 /// cut: a forced horizontal split around any full-width line (title/header/
 /// footer) mixed with narrower lines, then a whitespace-gap cut on whichever
-/// axis has the wider candidate gap (column vs. row), so a page with e.g.
-/// two stacked bands that each happen to also be two-column splits on the
-/// band boundary first rather than always defaulting to columns. A region
-/// that matches none of these becomes a `Leaf`, ready for per-region
-/// line-to-block merging.
+/// axis has the wider candidate gap (column vs. row, per `AxisCut::gap_width`
+/// — on the X axis this is the alignment-preferred gap, not necessarily the
+/// axis's single widest), so a page with e.g. two stacked bands that each
+/// happen to also be two-column splits on the band boundary first rather
+/// than always defaulting to columns. A region that matches none of these
+/// becomes a `Leaf`, ready for per-region line-to-block merging.
 pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
     let bbox = union_all(lines.iter().map(|l| l.bbox));
 
