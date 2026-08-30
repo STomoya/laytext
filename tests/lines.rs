@@ -47,6 +47,63 @@ fn close_chars_on_same_row_merge_into_one_line() {
 }
 
 #[test]
+fn single_char_line_has_confidence_one() {
+    let params = Params::default();
+    let a = ch(0.0, 0.0, 6.0, 10.0);
+    let lines = group_lines(vec![a], &params);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].confidence, 1.0);
+}
+
+#[test]
+fn line_confidence_is_maximal_when_chars_touch_exactly() {
+    let params = Params {
+        char_margin: 2.0,
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    let a = ch(0.0, 0.0, 10.0, 10.0);
+    let b = ch(10.0, 0.0, 20.0, 10.0); // touching: hdistance = 0
+    let lines = group_lines(vec![a, b], &params);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].confidence, 1.0);
+}
+
+#[test]
+fn line_confidence_is_low_when_a_char_barely_clears_char_margin() {
+    let params = Params {
+        char_margin: 2.0,
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    // threshold d = width.max(10) * char_margin(2.0) = 20; hdistance = 19,
+    // just under the threshold: ratio = 1.0 - 19.0/20.0 = 0.05.
+    let a = ch(0.0, 0.0, 10.0, 10.0);
+    let b = ch(29.0, 0.0, 39.0, 10.0);
+    let lines = group_lines(vec![a, b], &params);
+    assert_eq!(lines.len(), 1);
+    assert!((lines[0].confidence - 0.05).abs() < 1e-9);
+}
+
+#[test]
+fn line_confidence_reflects_the_weakest_merge_in_a_multi_char_line() {
+    let params = Params {
+        char_margin: 2.0,
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    // a-b touch exactly (ratio 1.0); b-c barely clears char_margin (ratio
+    // 0.05). The line's overall confidence must be the minimum across all
+    // its merges, not an average.
+    let a = ch(0.0, 0.0, 10.0, 10.0);
+    let b = ch(10.0, 0.0, 20.0, 10.0);
+    let c = ch(39.0, 0.0, 49.0, 10.0);
+    let lines = group_lines(vec![a, b, c], &params);
+    assert_eq!(lines.len(), 1);
+    assert!((lines[0].confidence - 0.05).abs() < 1e-9);
+}
+
+#[test]
 fn far_apart_chars_split_into_separate_lines() {
     let params = Params::default();
     let a = ch(0.0, 0.0, 6.0, 10.0);

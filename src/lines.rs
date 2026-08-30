@@ -1,4 +1,4 @@
-use crate::geometry::Rect;
+use crate::geometry::{Rect, margin_ratio};
 use crate::params::Params;
 use crate::types::{Char, Line};
 
@@ -15,6 +15,10 @@ struct LineBuilder {
     bbox: Option<Rect>,
     // Horizontal: previous char's x1. Vertical: previous char's y0.
     prev_edge: f64,
+    // The minimum margin ratio across every char-extension merge that has
+    // built this line so far; a line with no merges yet (freshly created,
+    // one char) stays at 1.0 until a second char extends it.
+    confidence: f64,
 }
 
 impl LineBuilder {
@@ -29,6 +33,7 @@ impl LineBuilder {
             chars: Vec::new(),
             bbox: None,
             prev_edge,
+            confidence: 1.0,
         }
     }
 
@@ -82,7 +87,7 @@ impl LineBuilder {
             }),
             upright: matches!(self.orientation, Orientation::Horizontal),
             chars: self.chars,
-            confidence: 1.0,
+            confidence: self.confidence,
         }
     }
 }
@@ -98,6 +103,20 @@ fn valign(a: &Rect, b: &Rect, params: &Params) -> bool {
         && a.is_hoverlap(b)
         && a.width().min(b.width()) * params.line_overlap < a.hoverlap(b)
         && a.vdistance(b) < a.height().max(b.height()) * params.char_margin
+}
+
+fn halign_ratio(a: &Rect, b: &Rect, params: &Params) -> f64 {
+    margin_ratio(
+        a.hdistance(b),
+        a.width().max(b.width()) * params.char_margin,
+    )
+}
+
+fn valign_ratio(a: &Rect, b: &Rect, params: &Params) -> f64 {
+    margin_ratio(
+        a.vdistance(b),
+        a.height().max(b.height()) * params.char_margin,
+    )
 }
 
 /// Groups a page's chars into lines. Direct port of pdfminer's
@@ -126,18 +145,28 @@ pub fn group_lines(chars: Vec<Char>, params: &Params) -> Vec<Line> {
             };
 
             if extends {
-                open.as_mut().unwrap().push(c);
+                let builder = open.as_mut().unwrap();
+                let ratio = match builder.orientation {
+                    Orientation::Horizontal => halign_ratio(&pb, &c_bbox, params),
+                    Orientation::Vertical => valign_ratio(&pb, &c_bbox, params),
+                };
+                builder.confidence = builder.confidence.min(ratio);
+                builder.push(c);
                 pending = None;
             } else if let Some(builder) = open.take() {
                 result.push(builder.finish());
                 pending = Some(c);
             } else if va && !ha {
+                let ratio = valign_ratio(&pb, &c_bbox, params);
                 let mut builder = LineBuilder::new(Orientation::Vertical, params.word_margin);
+                builder.confidence = ratio;
                 builder.push(pending.take().unwrap());
                 builder.push(c);
                 open = Some(builder);
             } else if ha && !va {
+                let ratio = halign_ratio(&pb, &c_bbox, params);
                 let mut builder = LineBuilder::new(Orientation::Horizontal, params.word_margin);
+                builder.confidence = ratio;
                 builder.push(pending.take().unwrap());
                 builder.push(c);
                 open = Some(builder);
