@@ -1,5 +1,6 @@
 use crate::geometry::{Rect, margin_ratio};
 use crate::params::Params;
+use crate::skew::{SKEW_NOISE_FLOOR_DEGREES, estimate_page_skew, shear_correct_bboxes};
 use crate::types::{Char, Line};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -124,14 +125,21 @@ fn valign_ratio(a: &Rect, b: &Rect, params: &Params) -> f64 {
 /// reading order (pdfminer relies on PDF content-stream order); this
 /// function does not sort.
 pub fn group_lines(chars: Vec<Char>, params: &Params) -> Vec<Line> {
+    let angle = estimate_page_skew(&chars);
+    let grouping_bboxes: Vec<Rect> = if angle.abs() > SKEW_NOISE_FLOOR_DEGREES {
+        shear_correct_bboxes(&chars, angle)
+    } else {
+        chars.iter().map(|c| c.bbox).collect()
+    };
+
     let mut result = Vec::new();
     let mut open: Option<LineBuilder> = None;
     // The most recently seen char that has not yet been moved into `open`.
     let mut pending: Option<Char> = None;
     let mut prev_bbox: Option<Rect> = None;
 
-    for c in chars {
-        let c_bbox = c.bbox;
+    for (i, c) in chars.into_iter().enumerate() {
+        let c_bbox = grouping_bboxes[i];
         if let Some(pb) = prev_bbox {
             let ha = halign(&pb, &c_bbox, params);
             let va = valign(&pb, &c_bbox, params);
