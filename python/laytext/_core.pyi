@@ -30,13 +30,25 @@ class Line:
     bbox: Rect
     upright: bool
     chars: list[Char]
-    def __init__(self, bbox: Rect, upright: bool, chars: list[Char]) -> None: ...
+    confidence: float
+    def __init__(
+        self, bbox: Rect, upright: bool, chars: list[Char], confidence: float = 1.0
+    ) -> None: ...
 
 class Block:
     bbox: Rect
     reading_order: int
     lines: list[Line]
-    def __init__(self, bbox: Rect, reading_order: int, lines: list[Line]) -> None: ...
+    tabular: bool
+    confidence: float
+    def __init__(
+        self,
+        bbox: Rect,
+        reading_order: int,
+        lines: list[Line],
+        tabular: bool = False,
+        confidence: float = 1.0,
+    ) -> None: ...
 
 class Page:
     width: float

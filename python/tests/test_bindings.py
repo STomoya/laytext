@@ -42,6 +42,28 @@ def test_char_rejects_multi_character_text():
         Char(Rect(0.0, 0.0, 1.0, 1.0), 'ab')
 
 
+def test_line_default_confidence_is_one():
+    line = Line(Rect(0.0, 0.0, 1.0, 1.0), True, [])
+    assert line.confidence == 1.0
+
+
+def test_line_accepts_confidence():
+    line = Line(Rect(0.0, 0.0, 1.0, 1.0), True, [], confidence=0.5)
+    assert line.confidence == 0.5
+
+
+def test_block_default_tabular_and_confidence():
+    block = Block(Rect(0.0, 0.0, 1.0, 1.0), 0, [])
+    assert block.tabular is False
+    assert block.confidence == 1.0
+
+
+def test_block_accepts_tabular_and_confidence():
+    block = Block(Rect(0.0, 0.0, 1.0, 1.0), 0, [], tabular=True, confidence=0.3)
+    assert block.tabular is True
+    assert block.confidence == 0.3
+
+
 def test_params_defaults():
     p = Params()
     assert p.char_margin == 2.0
