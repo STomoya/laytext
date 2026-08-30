@@ -107,6 +107,8 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
                 // flattened reading-order index once all regions are merged.
                 reading_order: 0,
                 lines: block_lines,
+                tabular: false,
+                confidence: 1.0,
             }
         })
         .collect()

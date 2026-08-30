@@ -76,16 +76,27 @@ pub struct Block {
     pub bbox: Rect,
     pub reading_order: usize,
     pub lines: Vec<Line>,
+    pub tabular: bool,
+    pub confidence: f64,
 }
 
 #[pymethods]
 impl Block {
     #[new]
-    fn py_new(bbox: Rect, reading_order: usize, lines: Vec<Line>) -> Self {
+    #[pyo3(signature = (bbox, reading_order, lines, tabular=false, confidence=1.0))]
+    fn py_new(
+        bbox: Rect,
+        reading_order: usize,
+        lines: Vec<Line>,
+        tabular: bool,
+        confidence: f64,
+    ) -> Self {
         Block {
             bbox,
             reading_order,
             lines,
+            tabular,
+            confidence,
         }
     }
 }
@@ -194,16 +205,18 @@ mod tests {
     #[test]
     fn block_py_new_assigns_all_fields_from_arguments() {
         let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)], 1.0);
-        let b = Block::py_new(rect(), 0, vec![l.clone()]);
+        let b = Block::py_new(rect(), 0, vec![l.clone()], true, 0.5);
         assert_eq!(b.bbox, rect());
         assert_eq!(b.reading_order, 0);
         assert_eq!(b.lines, vec![l]);
+        assert!(b.tabular);
+        assert_eq!(b.confidence, 0.5);
     }
 
     #[test]
     fn page_py_new_assigns_all_fields_from_arguments() {
         let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)], 1.0);
-        let b = Block::py_new(rect(), 0, vec![l]);
+        let b = Block::py_new(rect(), 0, vec![l], false, 1.0);
         let p = Page::py_new(8.5, 11.0, vec![b.clone()]);
         assert_eq!(p.width, 8.5);
         assert_eq!(p.height, 11.0);
@@ -253,7 +266,7 @@ mod tests {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
             let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)], 1.0);
-            let b = Block::py_new(rect(), 0, vec![l]);
+            let b = Block::py_new(rect(), 0, vec![l], false, 1.0);
             let obj = pyo3::Py::new(py, b.clone()).unwrap();
             let extracted: Block = obj.extract(py).unwrap();
             assert_eq!(extracted, b);
@@ -265,7 +278,7 @@ mod tests {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
             let l = Line::py_new(rect(), true, vec![Char::py_new(rect(), 'a', None)], 1.0);
-            let b = Block::py_new(rect(), 0, vec![l]);
+            let b = Block::py_new(rect(), 0, vec![l], false, 1.0);
             let p = Page::py_new(8.5, 11.0, vec![b]);
             let obj = pyo3::Py::new(py, p.clone()).unwrap();
             let extracted: Page = obj.extract(py).unwrap();
