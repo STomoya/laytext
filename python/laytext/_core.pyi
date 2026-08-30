@@ -31,9 +31,7 @@ class Line:
     upright: bool
     chars: list[Char]
     confidence: float
-    def __init__(
-        self, bbox: Rect, upright: bool, chars: list[Char], confidence: float = 1.0
-    ) -> None: ...
+    def __init__(self, bbox: Rect, upright: bool, chars: list[Char], confidence: float = 1.0) -> None: ...
 
 class Block:
     bbox: Rect

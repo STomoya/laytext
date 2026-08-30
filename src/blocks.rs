@@ -70,7 +70,10 @@ fn block_is_tabular(lines: &[Line], bbox: &Rect) -> bool {
                     >= 2
         })
     };
-    let aligned_count = lines.iter().filter(|l| has_repeated_internal_edge(l)).count();
+    let aligned_count = lines
+        .iter()
+        .filter(|l| has_repeated_internal_edge(l))
+        .count();
     aligned_count * 2 > lines.len()
 }
 
