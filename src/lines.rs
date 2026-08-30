@@ -1,5 +1,6 @@
-use crate::geometry::Rect;
+use crate::geometry::{Rect, margin_ratio};
 use crate::params::Params;
+use crate::skew::{SKEW_NOISE_FLOOR_DEGREES, estimate_page_skew, shear_correct_bboxes};
 use crate::types::{Char, Line};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,6 +16,10 @@ struct LineBuilder {
     bbox: Option<Rect>,
     // Horizontal: previous char's x1. Vertical: previous char's y0.
     prev_edge: f64,
+    // The minimum margin ratio across every char-extension merge that has
+    // built this line so far; a line with no merges yet (freshly created,
+    // one char) stays at 1.0 until a second char extends it.
+    confidence: f64,
 }
 
 impl LineBuilder {
@@ -29,6 +34,7 @@ impl LineBuilder {
             chars: Vec::new(),
             bbox: None,
             prev_edge,
+            confidence: 1.0,
         }
     }
 
@@ -82,6 +88,7 @@ impl LineBuilder {
             }),
             upright: matches!(self.orientation, Orientation::Horizontal),
             chars: self.chars,
+            confidence: self.confidence,
         }
     }
 }
@@ -99,19 +106,42 @@ fn valign(a: &Rect, b: &Rect, params: &Params) -> bool {
         && a.vdistance(b) < a.height().max(b.height()) * params.char_margin
 }
 
-/// Groups a page's chars into lines. Direct port of pdfminer's
-/// `LTLayoutContainer.group_objects`. Input must already be in roughly
+fn halign_ratio(a: &Rect, b: &Rect, params: &Params) -> f64 {
+    margin_ratio(
+        a.hdistance(b),
+        a.width().max(b.width()) * params.char_margin,
+    )
+}
+
+fn valign_ratio(a: &Rect, b: &Rect, params: &Params) -> f64 {
+    margin_ratio(
+        a.vdistance(b),
+        a.height().max(b.height()) * params.char_margin,
+    )
+}
+
+/// Groups a page's chars into lines. Port of pdfminer's
+/// `LTLayoutContainer.group_objects`, with a skew-correction pre-pass
+/// (`estimate_page_skew`/`shear_correct_bboxes`) that only affects grouping
+/// decisions, never the output geometry. Input must already be in roughly
 /// reading order (pdfminer relies on PDF content-stream order); this
 /// function does not sort.
 pub fn group_lines(chars: Vec<Char>, params: &Params) -> Vec<Line> {
+    let angle = estimate_page_skew(&chars);
+    let grouping_bboxes: Vec<Rect> = if angle.abs() > SKEW_NOISE_FLOOR_DEGREES {
+        shear_correct_bboxes(&chars, angle)
+    } else {
+        chars.iter().map(|c| c.bbox).collect()
+    };
+
     let mut result = Vec::new();
     let mut open: Option<LineBuilder> = None;
     // The most recently seen char that has not yet been moved into `open`.
     let mut pending: Option<Char> = None;
     let mut prev_bbox: Option<Rect> = None;
 
-    for c in chars {
-        let c_bbox = c.bbox;
+    for (i, c) in chars.into_iter().enumerate() {
+        let c_bbox = grouping_bboxes[i];
         if let Some(pb) = prev_bbox {
             let ha = halign(&pb, &c_bbox, params);
             let va = valign(&pb, &c_bbox, params);
@@ -125,18 +155,28 @@ pub fn group_lines(chars: Vec<Char>, params: &Params) -> Vec<Line> {
             };
 
             if extends {
-                open.as_mut().unwrap().push(c);
+                let builder = open.as_mut().unwrap();
+                let ratio = match builder.orientation {
+                    Orientation::Horizontal => halign_ratio(&pb, &c_bbox, params),
+                    Orientation::Vertical => valign_ratio(&pb, &c_bbox, params),
+                };
+                builder.confidence = builder.confidence.min(ratio);
+                builder.push(c);
                 pending = None;
             } else if let Some(builder) = open.take() {
                 result.push(builder.finish());
                 pending = Some(c);
             } else if va && !ha {
+                let ratio = valign_ratio(&pb, &c_bbox, params);
                 let mut builder = LineBuilder::new(Orientation::Vertical, params.word_margin);
+                builder.confidence = ratio;
                 builder.push(pending.take().unwrap());
                 builder.push(c);
                 open = Some(builder);
             } else if ha && !va {
+                let ratio = halign_ratio(&pb, &c_bbox, params);
                 let mut builder = LineBuilder::new(Orientation::Horizontal, params.word_margin);
+                builder.confidence = ratio;
                 builder.push(pending.take().unwrap());
                 builder.push(c);
                 open = Some(builder);

@@ -4,6 +4,7 @@ pub mod geometry;
 pub mod lines;
 pub mod params;
 pub mod segmentation;
+pub mod skew;
 pub mod types;
 
 use pyo3::prelude::*;

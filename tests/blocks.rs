@@ -16,6 +16,7 @@ fn line(bbox: Rect, upright: bool) -> Line {
             text: 'x',
             font: None,
         }],
+        confidence: 1.0,
     }
 }
 
@@ -172,4 +173,97 @@ fn side_by_side_centrally_aligned_vertical_lines_merge_into_one_block() {
     let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![a, b]);
+}
+
+#[test]
+fn single_line_block_has_confidence_one() {
+    let params = Params::default();
+    let a = line(rect(0.0, 0.0, 100.0, 10.0), true);
+    let blocks = group_blocks(vec![a], &params);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].confidence, 1.0);
+}
+
+#[test]
+fn block_confidence_is_high_for_closely_spaced_lines() {
+    let params = Params::default();
+    // threshold d = line_margin(0.5) * height(10) = 5; vdistance = 0.5:
+    // ratio = 1.0 - 0.5/5.0 = 0.9.
+    let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
+    let b = line(rect(0.0, 9.5, 100.0, 19.5), true);
+    let blocks = group_blocks(vec![a, b], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!((blocks[0].confidence - 0.9).abs() < 1e-9);
+}
+
+#[test]
+fn block_confidence_is_low_when_lines_barely_clear_line_margin() {
+    let params = Params::default();
+    // threshold d = line_margin(0.5) * height(10) = 5; vdistance = 4.9:
+    // ratio = 1.0 - 4.9/5.0 = 0.02.
+    let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
+    let b = line(rect(0.0, 5.1, 100.0, 15.1), true);
+    let blocks = group_blocks(vec![a, b], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!((blocks[0].confidence - 0.02).abs() < 1e-9);
+}
+
+#[test]
+fn block_confidence_reflects_the_weakest_merge_in_a_multi_line_block() {
+    let params = Params::default();
+    // a-b vdistance 0.5 (ratio 0.9); b-c vdistance 4.9 (ratio 0.02). The
+    // block's overall confidence must be the minimum across all its
+    // merges, not an average.
+    let a = line(rect(0.0, 40.0, 100.0, 50.0), true);
+    let b = line(rect(0.0, 29.5, 100.0, 39.5), true);
+    let c = line(rect(0.0, 14.6, 100.0, 24.6), true);
+    let blocks = group_blocks(vec![a, b, c], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!((blocks[0].confidence - 0.02).abs() < 1e-9);
+}
+
+#[test]
+fn tabular_block_with_a_repeated_internal_edge_is_flagged_tabular() {
+    let params = Params::default();
+    // A full-width top row plus two narrower rows that both start/end at
+    // the same interior x (20, 80) — not the block's own outer x0/x1 (0,
+    // 100), which only the top row touches. This repeated interior
+    // boundary (a shared cell-column edge) is the tabular signal; the top
+    // row alone shares nothing internal.
+    let top = line(rect(0.0, 40.0, 100.0, 50.0), true);
+    let mid = line(rect(20.0, 28.0, 80.0, 38.0), true);
+    let bottom = line(rect(20.0, 16.0, 80.0, 26.0), true);
+    let blocks = group_blocks(vec![top, mid, bottom], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!(blocks[0].tabular);
+}
+
+#[test]
+fn ordinary_ragged_right_paragraph_is_not_tabular() {
+    let params = Params::default();
+    // All three lines share only the block's own left margin (x0 = 0);
+    // their right edges (100, 70, 90) are all different, so no interior
+    // edge is ever repeated.
+    let a = line(rect(0.0, 40.0, 100.0, 50.0), true);
+    let b = line(rect(0.0, 28.0, 70.0, 38.0), true);
+    let c = line(rect(0.0, 16.0, 90.0, 26.0), true);
+    let blocks = group_blocks(vec![a, b, c], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!(!blocks[0].tabular);
+}
+
+#[test]
+fn a_two_line_block_is_never_tabular_regardless_of_alignment() {
+    let params = Params::default();
+    // Two non-upright lines touching at x=20 (a.x0 = b.x1 = 20), merged via
+    // are_vertical_neighbors (same y-range, touching in x, equal width).
+    // bbox = (0,0,40,10): x=20 is internal (not bbox's own 0 or 40) and
+    // shared by both lines — without the lines.len()<3 guard, this WOULD
+    // evaluate tabular=true (aligned_count=2, 2*2=4>2). The guard is what
+    // forces false here.
+    let a = line(rect(20.0, 0.0, 40.0, 10.0), false);
+    let b = line(rect(0.0, 0.0, 20.0, 10.0), false);
+    let blocks = group_blocks(vec![a, b], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!(!blocks[0].tabular);
 }

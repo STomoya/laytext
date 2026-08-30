@@ -11,6 +11,7 @@ fn line(bbox: Rect) -> Line {
     Line {
         bbox,
         upright: true,
+        confidence: 1.0,
         chars: vec![Char {
             bbox,
             text: 'x',
@@ -100,9 +101,10 @@ fn intruding_line_across_gutter_does_not_block_the_column_cut() {
     // overlaps both columns, so projecting it alongside the columns merges
     // every run into one and the plain gap search finds nothing on either
     // axis (same y-range on all three lines, so there's no row-gap escape
-    // hatch either). Excluding just this one line should still reveal the
-    // 20pt column gap; the excluded line then lands on whichever side its
-    // center sits nearer (105 < the gap's 110 midpoint: the left column).
+    // hatch either). Masking this line as a width outlier (130pt vs. the
+    // other lines' 100pt) should still reveal the 20pt column gap; the
+    // masked line then lands on whichever side its center sits nearer
+    // (105 < the gap's 110 midpoint: the left column).
     let params = params_with_gaps(Some(10.0), Some(10.0));
     let left = line(rect(0.0, 0.0, 100.0, 10.0));
     let right = line(rect(120.0, 0.0, 220.0, 10.0));
@@ -266,14 +268,115 @@ fn widest_gap_is_chosen_when_multiple_candidate_gaps_exist() {
 }
 
 #[test]
+fn tab_stop_alignment_beats_a_wider_unaligned_gap() {
+    // Runs: (0,100), (115,215) [three lines sharing x0=115, ragged right],
+    // (400,500). Candidate (100,115), width 15: L1(x1=100) + R1,R2,R3
+    // (x0=115) align -> score 4. Candidate (215,400), width 185: only
+    // R1(x1=215) + F(x0=400) align -> score 2. The narrower, better-
+    // aligned column gutter must be chosen over the much wider gap that
+    // has no repeated alignment evidence.
+    //
+    // r2/r3 widths (95, 97) stay close to r1's (100) deliberately: an
+    // earlier draft used (65, 85), which made r1 alone look like a
+    // "full-width title" over the [r1,r2,r3] sub-bbox on the second
+    // recursion and wrongly triggered try_full_width_split's title/header
+    // banding - an unrelated, pre-existing heuristic, not a bug in this
+    // plan's new code. Verified against the actual implementation during
+    // planning; do not widen that gap back out without re-checking.
+    let params = params_with_gaps(Some(10.0), Some(10.0));
+    let l1 = line(rect(0.0, 0.0, 100.0, 10.0));
+    let r1 = line(rect(115.0, 0.0, 215.0, 10.0));
+    let r2 = line(rect(115.0, 0.0, 210.0, 10.0));
+    let r3 = line(rect(115.0, 0.0, 212.0, 10.0));
+    let f = line(rect(400.0, 0.0, 500.0, 10.0));
+    let region = segment(
+        vec![l1.clone(), r1.clone(), r2.clone(), r3.clone(), f.clone()],
+        &params,
+    );
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 500.0, 10.0),
+            orientation: Orientation::Vertical,
+            children: vec![
+                Region::Leaf {
+                    bbox: l1.bbox,
+                    lines: vec![l1],
+                },
+                Region::Split {
+                    bbox: rect(115.0, 0.0, 500.0, 10.0),
+                    orientation: Orientation::Vertical,
+                    children: vec![
+                        Region::Leaf {
+                            bbox: rect(115.0, 0.0, 215.0, 10.0),
+                            lines: vec![r1, r2, r3],
+                        },
+                        Region::Leaf {
+                            bbox: f.bbox,
+                            lines: vec![f],
+                        },
+                    ],
+                },
+            ],
+        }
+    );
+}
+
+#[test]
+fn multiple_simultaneous_bridging_obstacles_still_reveal_the_column_cut() {
+    // Left(0,100), Right(150,250): a clean 50pt gutter. Obstacle1(40,220)
+    // and Obstacle2(60,240) both span across it, so the plain projection
+    // (and the old single-exclusion widest_gap_tolerant, which could only
+    // ever try removing ONE line at a time) find nothing: every attempt to
+    // remove just one obstacle still leaves the other one bridging the
+    // gutter. Both obstacles are width outliers (180 each, vs. 100 for
+    // Left/Right; median 140, threshold 175) and get masked simultaneously,
+    // revealing the real gap.
+    let params = params_with_gaps(Some(10.0), Some(10.0));
+    let left = line(rect(0.0, 0.0, 100.0, 10.0));
+    let right = line(rect(150.0, 0.0, 250.0, 10.0));
+    let obstacle1 = line(rect(40.0, 0.0, 220.0, 10.0));
+    let obstacle2 = line(rect(60.0, 0.0, 240.0, 10.0));
+    let region = segment(
+        vec![
+            left.clone(),
+            right.clone(),
+            obstacle1.clone(),
+            obstacle2.clone(),
+        ],
+        &params,
+    );
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 250.0, 10.0),
+            orientation: Orientation::Vertical,
+            children: vec![
+                Region::Leaf {
+                    bbox: left.bbox,
+                    lines: vec![left],
+                },
+                Region::Leaf {
+                    bbox: rect(40.0, 0.0, 250.0, 10.0),
+                    // partition() preserves input order: `right` (index 1)
+                    // precedes obstacle1/obstacle2 (indices 2, 3) in the
+                    // vec![left, right, obstacle1, obstacle2] passed above.
+                    lines: vec![right, obstacle1, obstacle2],
+                },
+            ],
+        }
+    );
+}
+
+#[test]
 fn wider_row_gap_wins_over_narrower_column_gap() {
     // Two stacked rows, each internally two-column. The column gap (10pt)
     // clears column_gap_min and is tried first, so today's fixed
     // vertical-before-horizontal order splits into left/right columns
     // (each spanning both rows) before ever comparing against the far
     // wider row gap (110pt) that actually separates two unrelated bands.
-    // The widest gap overall should win regardless of axis: splitting
-    // top/bottom first, each then splitting into its own left/right pair.
+    // The wider gap should win regardless of axis: splitting top/bottom
+    // first, each then splitting into its own left/right pair.
     let params = params_with_gaps(Some(5.0), Some(5.0));
     let top_left = line(rect(0.0, 120.0, 40.0, 130.0));
     let top_right = line(rect(50.0, 120.0, 100.0, 130.0)); // 10pt gap from top_left
@@ -619,6 +722,48 @@ fn title_two_column_body_and_footer_still_splits_into_three_bands() {
                 Region::Leaf {
                     bbox: footer.bbox,
                     lines: vec![footer],
+                },
+            ],
+        }
+    );
+}
+
+#[test]
+fn height_similarity_breaks_an_alignment_tie_end_to_end() {
+    // Runs: A(0,50) h10, B(70,120) h10, C(200,260) h100. Gap(50,70) and
+    // Gap(120,200) both have tab-stop alignment score 2 (A.x1/B.x0 align;
+    // B.x1/C.x0 align) - a tie. A's height (10) is far closer to B's (10)
+    // than C's (100), so the narrower gap (50,70) is the more
+    // height-similar split and must win over the wider (120,200), even
+    // though a plain width tie-break would have picked the wider one.
+    let params = params_with_gaps(Some(5.0), Some(1000.0));
+    let a = line(rect(0.0, 0.0, 50.0, 10.0));
+    let b = line(rect(70.0, 0.0, 120.0, 10.0));
+    let c = line(rect(200.0, 0.0, 260.0, 100.0));
+    let region = segment(vec![a.clone(), b.clone(), c.clone()], &params);
+    assert_eq!(
+        region,
+        Region::Split {
+            bbox: rect(0.0, 0.0, 260.0, 100.0),
+            orientation: Orientation::Vertical,
+            children: vec![
+                Region::Leaf {
+                    bbox: a.bbox,
+                    lines: vec![a],
+                },
+                Region::Split {
+                    bbox: rect(70.0, 0.0, 260.0, 100.0),
+                    orientation: Orientation::Vertical,
+                    children: vec![
+                        Region::Leaf {
+                            bbox: b.bbox,
+                            lines: vec![b],
+                        },
+                        Region::Leaf {
+                            bbox: c.bbox,
+                            lines: vec![c],
+                        },
+                    ],
                 },
             ],
         }

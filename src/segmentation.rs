@@ -29,7 +29,22 @@ pub enum Region {
 const AUTO_COLUMN_GAP_FACTOR: f64 = 2.0;
 const AUTO_ROW_GAP_FACTOR: f64 = 1.5;
 
+/// `line.bbox.width()` outlier factor for the X-axis obstacle mask: a line
+/// wider than this times the region's median line width is treated as a
+/// bridging obstacle (a caption/table-row spanning a column gutter) and
+/// excluded from gap projection. Only "too wide" is flagged, not "too
+/// narrow" - a narrow line can't bridge a gap - which means the narrowest
+/// line in any set is provably never flagged (min <= median <= threshold
+/// whenever this factor is > 1.0). For finite input this ensures masking
+/// can never remove every candidate interval; with NaN line widths the
+/// median is NaN and all comparisons fail, which can produce an empty result
+/// gracefully rather than panicking.
+const OBSTACLE_WIDTH_FACTOR: f64 = 1.25;
+
 fn median_line_height(lines: &[Line]) -> f64 {
+    if lines.is_empty() {
+        return 0.0;
+    }
     let mut heights: Vec<f64> = lines.iter().map(|l| l.bbox.height()).collect();
     heights.sort_by(f64::total_cmp);
     let mid = heights.len() / 2;
@@ -40,40 +55,97 @@ fn median_line_height(lines: &[Line]) -> f64 {
     }
 }
 
+fn median_line_width(lines: &[Line]) -> f64 {
+    let mut widths: Vec<f64> = lines.iter().map(|l| l.bbox.width()).collect();
+    widths.sort_by(f64::total_cmp);
+    let mid = widths.len() / 2;
+    if widths.len().is_multiple_of(2) {
+        (widths[mid - 1] + widths[mid]) / 2.0
+    } else {
+        widths[mid]
+    }
+}
+
+fn mask_bridging_obstacles(lines: &[Line]) -> Vec<(f64, f64)> {
+    let threshold = OBSTACLE_WIDTH_FACTOR * median_line_width(lines);
+    lines
+        .iter()
+        .filter(|l| l.bbox.width() <= threshold)
+        .map(|l| (l.bbox.x0, l.bbox.x1))
+        .collect()
+}
+
 fn widest_gap(gaps: Vec<(f64, f64)>) -> Option<(f64, f64)> {
     gaps.into_iter()
         .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
 }
 
-/// Like [`widest_gap`] over the interval projection, but tolerant of a
-/// single intruding interval (e.g. a caption/table-row line bridging a
-/// column gutter) that would otherwise merge every run together and hide
-/// the gap entirely. Only engages when the plain projection finds nothing,
-/// so it never changes behavior for a region where a gap is already found.
-///
-/// X-axis only ([`try_axis_cut_x`]): stacked lines on the Y axis are
-/// naturally non-overlapping neighbors, so excluding any one of them
-/// synthesizes a fake gap between its neighbors even in ordinary paragraph
-/// text (see git history for the regression this caused when tried on Y).
-/// Column text is safe because real paragraph lines share x-overlap (a
-/// common left/center edge), so excluding one can't manufacture a gap
-/// between the rest — only a genuine bridging intruder can.
-///
-/// ponytail: O(n^2 log n) single-interval-exclusion search, not a proper
-/// maximal-whitespace-rectangle algorithm. Upgrade if the real corpus shows
-/// intrusions from more than one interior line at once.
-fn widest_gap_tolerant(intervals: &[(f64, f64)], min_gap: f64) -> Option<(f64, f64)> {
-    let baseline = widest_gap(find_gaps(intervals, min_gap));
-    if baseline.is_some() || intervals.len() < 3 {
-        return baseline;
-    }
-    (0..intervals.len())
-        .filter_map(|i| {
-            let mut subset = intervals.to_vec();
-            subset.remove(i);
-            widest_gap(find_gaps(&subset, min_gap))
+/// Distance tolerance (points) for treating a line's edge as "the same"
+/// boundary as a candidate gap's edge, when counting how many lines
+/// corroborate that gap as a real, repeated column tab-stop rather than an
+/// incidental one-off gap.
+const TAB_STOP_ALIGN_TOLERANCE: f64 = 1.0;
+
+/// How many lines have an edge at `gap`'s boundary: `x1` at the gap's left
+/// edge (the line ends where the gap begins) or `x0` at its right edge
+/// (the line starts where the gap ends). For any gap at least `2 *
+/// TAB_STOP_ALIGN_TOLERANCE` wide (which `gap_min` guarantees in practice),
+/// a single line can satisfy at most one condition, so counting is
+/// unambiguous with a plain OR filter.
+fn tab_stop_alignment_score(gap: (f64, f64), lines: &[Line]) -> usize {
+    lines
+        .iter()
+        .filter(|l| {
+            (l.bbox.x1 - gap.0).abs() <= TAB_STOP_ALIGN_TOLERANCE
+                || (l.bbox.x0 - gap.1).abs() <= TAB_STOP_ALIGN_TOLERANCE
         })
-        .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)))
+        .count()
+}
+
+/// How similar the median line height is between the two tentative sides of
+/// `gap` (partitioned the same way [`try_axis_cut_x`] partitions its chosen
+/// gap, but per-candidate before a gap is chosen): 1.0 when the two sides'
+/// median heights match exactly, decreasing as they diverge. A genuine
+/// column split tends to have similar body-text sizes on both sides; a
+/// spurious gap is more likely to separate mismatched content (e.g. a
+/// caption/sidebar region from body text).
+fn gap_height_similarity(gap: (f64, f64), lines: &[Line]) -> f64 {
+    let mid = (gap.0 + gap.1) / 2.0;
+    let (left, right): (Vec<Line>, Vec<Line>) = lines
+        .iter()
+        .cloned()
+        .partition(|l| (l.bbox.x0 + l.bbox.x1) / 2.0 < mid);
+    1.0 / (1.0 + (median_line_height(&left) - median_line_height(&right)).abs())
+}
+
+/// Picks the best candidate gap from `masked_intervals` (typically
+/// [`mask_bridging_obstacles`]'s output): highest tab-stop alignment score
+/// first; ties broken by the more similar median line height between the
+/// gap's two tentative sides ([`gap_height_similarity`]); gap width as the
+/// final tie-break. With zero or one candidate neither tie-break can
+/// matter, so this never changes behavior versus a plain widest-gap pick
+/// for the common single-candidate case.
+fn select_column_gap(
+    masked_intervals: &[(f64, f64)],
+    all_lines: &[Line],
+    gap_min: f64,
+) -> Option<(f64, f64)> {
+    find_gaps(masked_intervals, gap_min)
+        .into_iter()
+        .map(|gap| {
+            (
+                gap,
+                tab_stop_alignment_score(gap, all_lines),
+                gap_height_similarity(gap, all_lines),
+            )
+        })
+        .max_by(|(gap_a, score_a, sim_a), (gap_b, score_b, sim_b)| {
+            score_a
+                .cmp(score_b)
+                .then(sim_a.total_cmp(sim_b))
+                .then((gap_a.1 - gap_a.0).total_cmp(&(gap_b.1 - gap_b.0)))
+        })
+        .map(|(gap, _, _)| gap)
 }
 
 /// Above this band count, banding no longer resembles a page-level title/
@@ -138,7 +210,11 @@ fn try_full_width_split(lines: &[Line], bbox: Rect, params: &Params) -> Option<V
 
 /// An axis cut candidate: the two partitions plus the gap width that
 /// separates them, so callers can compare candidates across axes and pick
-/// whichever gap is actually widest.
+/// whichever gap is actually widest. Note: `gap_width` here reflects the
+/// alignment/height-similarity-preferred gap from `select_column_gap` (X
+/// axis) or the widest gap (Y axis), not necessarily the single widest X
+/// candidate, so it can now compare as narrower than a plain "always widest"
+/// approach would have.
 struct AxisCut {
     left_or_top: Vec<Line>,
     right_or_bottom: Vec<Line>,
@@ -146,8 +222,8 @@ struct AxisCut {
 }
 
 fn try_axis_cut_x(lines: &[Line], gap_min: f64) -> Option<AxisCut> {
-    let intervals: Vec<(f64, f64)> = lines.iter().map(|l| (l.bbox.x0, l.bbox.x1)).collect();
-    let gap = widest_gap_tolerant(&intervals, gap_min)?;
+    let masked = mask_bridging_obstacles(lines);
+    let gap = select_column_gap(&masked, lines, gap_min)?;
     let mid = (gap.0 + gap.1) / 2.0;
     let (left, right): (Vec<Line>, Vec<Line>) = lines
         .iter()
@@ -178,11 +254,12 @@ fn try_axis_cut_y(lines: &[Line], gap_min: f64) -> Option<AxisCut> {
 /// Recursively partitions a page's lines into a `Region` tree via an X-Y
 /// cut: a forced horizontal split around any full-width line (title/header/
 /// footer) mixed with narrower lines, then a whitespace-gap cut on whichever
-/// axis has the wider candidate gap (column vs. row), so a page with e.g.
-/// two stacked bands that each happen to also be two-column splits on the
-/// band boundary first rather than always defaulting to columns. A region
-/// that matches none of these becomes a `Leaf`, ready for per-region
-/// line-to-block merging.
+/// axis has the wider candidate gap (column vs. row, per `AxisCut::gap_width`
+/// — on the X axis this is the alignment-preferred gap, not necessarily the
+/// axis's single widest), so a page with e.g. two stacked bands that each
+/// happen to also be two-column splits on the band boundary first rather
+/// than always defaulting to columns. A region that matches none of these
+/// becomes a `Leaf`, ready for per-region line-to-block merging.
 pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
     let bbox = union_all(lines.iter().map(|l| l.bbox));
 
@@ -244,28 +321,15 @@ pub fn segment(lines: Vec<Line>, params: &Params) -> Region {
 
 #[cfg(test)]
 mod tests {
-    use super::{median_line_height, widest_gap, widest_gap_tolerant};
+    use super::{
+        gap_height_similarity, mask_bridging_obstacles, median_line_height, median_line_width,
+        select_column_gap, widest_gap,
+    };
 
     #[test]
     fn widest_gap_nan_width_does_not_panic() {
         let result = widest_gap(vec![(0.0, 5.0), (0.0, f64::NAN)]);
         assert!(result.is_some());
-    }
-
-    #[test]
-    fn widest_gap_tolerant_returns_the_widest_gap_across_all_single_line_exclusions() {
-        // Baseline (all 5 intervals) merges into a single run: bridge1
-        // connects p1 to p2, bridge2 connects p2 to p3, so nothing is found
-        // without excluding one of them. Excluding bridge1 alone reveals a
-        // 20pt gap; excluding bridge2 alone reveals a wider 30pt gap - the
-        // wider one must win, not just whichever is found first.
-        let p1 = (0.0, 10.0);
-        let bridge1 = (8.0, 32.0);
-        let p2 = (30.0, 40.0);
-        let bridge2 = (38.0, 75.0);
-        let p3 = (70.0, 130.0);
-        let intervals = vec![p1, bridge1, p2, bridge2, p3];
-        assert_eq!(widest_gap_tolerant(&intervals, 5.0), Some((40.0, 70.0)));
     }
 
     #[test]
@@ -285,6 +349,7 @@ mod tests {
                 Line {
                     bbox,
                     upright: true,
+                    confidence: 1.0,
                     chars: vec![Char {
                         bbox,
                         text: 'x',
@@ -313,6 +378,7 @@ mod tests {
                 Line {
                     bbox,
                     upright: true,
+                    confidence: 1.0,
                     chars: vec![Char {
                         bbox,
                         text: 'x',
@@ -325,6 +391,11 @@ mod tests {
     }
 
     #[test]
+    fn median_line_height_empty_returns_zero() {
+        assert_eq!(median_line_height(&[]), 0.0);
+    }
+
+    #[test]
     fn try_full_width_split_nan_y_does_not_panic() {
         use crate::params::Params;
         use crate::types::{Char, Line};
@@ -333,6 +404,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -346,5 +418,488 @@ mod tests {
         let params = Params::default();
 
         let _ = super::try_full_width_split(&[narrow, full], bbox, &params);
+    }
+
+    #[test]
+    fn median_line_width_odd_count_returns_middle_value() {
+        use crate::types::{Char, Line};
+
+        let widths = [5.0, 20.0, 10.0];
+        let lines: Vec<Line> = widths
+            .iter()
+            .map(|&w| {
+                let bbox = crate::geometry::Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: w,
+                    y1: 10.0,
+                };
+                Line {
+                    bbox,
+                    upright: true,
+                    confidence: 1.0,
+                    chars: vec![Char {
+                        bbox,
+                        text: 'x',
+                        font: None,
+                    }],
+                }
+            })
+            .collect();
+        assert_eq!(median_line_width(&lines), 10.0);
+    }
+
+    #[test]
+    fn median_line_width_even_count_returns_average_of_middle_two() {
+        use crate::types::{Char, Line};
+
+        let widths = [10.0, 30.0];
+        let lines: Vec<Line> = widths
+            .iter()
+            .map(|&w| {
+                let bbox = crate::geometry::Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: w,
+                    y1: 10.0,
+                };
+                Line {
+                    bbox,
+                    upright: true,
+                    confidence: 1.0,
+                    chars: vec![Char {
+                        bbox,
+                        text: 'x',
+                        font: None,
+                    }],
+                }
+            })
+            .collect();
+        assert_eq!(median_line_width(&lines), 20.0);
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_keeps_all_lines_when_widths_are_uniform() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // all width 50.0: nothing is a width outlier
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(70.0, 120.0)),
+            line(rect(200.0, 250.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 50.0), (70.0, 120.0), (200.0, 250.0)]
+        );
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_excludes_a_lone_wide_outlier() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // widths [50, 50, 150]; median 50.0, threshold 62.5: only the 150-wide
+        // line (a caption/table-row bridging a gutter) is excluded.
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(70.0, 120.0)),
+            line(rect(150.0, 300.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 50.0), (70.0, 120.0)]
+        );
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_excludes_multiple_simultaneous_outliers() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // widths [50, 50, 200, 210]; median 125.0, threshold 156.25: both wide
+        // lines are excluded simultaneously - the case the old single-exclusion
+        // widest_gap_tolerant could never handle.
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(60.0, 110.0)),
+            line(rect(0.0, 200.0)),
+            line(rect(10.0, 220.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 50.0), (60.0, 110.0)]
+        );
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_never_excludes_the_narrowest_line() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // widths [1, 1, 1, 100, 100, 100]; median 50.5, threshold 63.125: the
+        // majority (the three 100-wide lines) get excluded, but the narrowest
+        // line can never be excluded for any OBSTACLE_WIDTH_FACTOR > 1.0 (the
+        // minimum of any set is always <= its median, so it's always <= the
+        // threshold too) - this is why mask_bridging_obstacles needs no
+        // "masked everything" guard: that state is unreachable.
+        let lines = vec![
+            line(rect(0.0, 1.0)),
+            line(rect(10.0, 11.0)),
+            line(rect(20.0, 21.0)),
+            line(rect(100.0, 200.0)),
+            line(rect(300.0, 400.0)),
+            line(rect(500.0, 600.0)),
+        ];
+        assert_eq!(
+            mask_bridging_obstacles(&lines),
+            vec![(0.0, 1.0), (10.0, 11.0), (20.0, 21.0)]
+        );
+    }
+
+    #[test]
+    fn select_column_gap_returns_none_when_no_candidates_exist() {
+        // a single interval: no gap possible
+        let result = select_column_gap(&[(0.0, 50.0)], &[], 5.0);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn select_column_gap_picks_the_only_candidate_when_just_one_exists() {
+        let result = select_column_gap(&[(0.0, 50.0), (70.0, 120.0)], &[], 5.0);
+        assert_eq!(result, Some((50.0, 70.0)));
+    }
+
+    #[test]
+    fn select_column_gap_prefers_higher_alignment_score_over_wider_gap() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: (0,50), (65,140) [65,100 + 65,140 merged], (300,350).
+        // Candidate (50,65), width 15: L(x1=50) + R1,R2(x0=65) align -> score 3.
+        // Candidate (140,300), width 160: only R2(x1=140) + F(x0=300) align -> score 2.
+        // The narrower, better-aligned gap must win despite being far narrower.
+        let l = line(rect(0.0, 50.0));
+        let r1 = line(rect(65.0, 100.0));
+        let r2 = line(rect(65.0, 140.0));
+        let f = line(rect(300.0, 350.0));
+        let all_lines = vec![l, r1, r2, f];
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((50.0, 65.0)));
+    }
+
+    #[test]
+    fn select_column_gap_breaks_alignment_ties_by_width() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: (0,50), (60,100), (150,200). Both candidate gaps have exactly
+        // one line touching each side (score 2 each) - a tie, so the wider
+        // gap (100,150) must win, matching the pre-existing widest-gap
+        // behavior for this shape of input.
+        let a = line(rect(0.0, 50.0));
+        let b = line(rect(60.0, 100.0));
+        let c = line(rect(150.0, 200.0));
+        let all_lines = vec![a, b, c];
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((100.0, 150.0)));
+    }
+
+    #[test]
+    fn select_column_gap_height_similarity_breaks_alignment_tie() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64, y1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: A(0,50) h10, B(70,120) h10, C(200,260) h100. Gap(50,70)
+        // score 2 (A.x1, B.x0 align); Gap(120,200) score 2 (B.x1, C.x0
+        // align) - tied. Height similarity: Gap(50,70) sides are
+        // [A]=10 vs [B,C]=median(10,100)=55 -> sim ~= 1/46. Gap(120,200)
+        // sides are [A,B]=median(10,10)=10 vs [C]=100 -> sim ~= 1/91. The
+        // first gap is more height-similar despite being far narrower (20
+        // vs 80), so it must win even though the old width-only tie-break
+        // would have picked the wider one.
+        let a = line(rect(0.0, 50.0, 10.0));
+        let b = line(rect(70.0, 120.0, 10.0));
+        let c = line(rect(200.0, 260.0, 100.0));
+        let all_lines = vec![a, b, c];
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((50.0, 70.0)));
+    }
+
+    #[test]
+    fn select_column_gap_alignment_score_still_wins_despite_worse_height_similarity() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64, y1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // Runs: (0,50) h100, (65,140) [65,100 h10 + 65,140 h10 merged],
+        // (300,350) h10. Candidate (50,65) score 3 (l.x1, r1.x0, r2.x0
+        // align) but poor height similarity: [l]=100 vs [r1,r2,f]=median
+        // (10,10,10)=10 -> sim ~= 1/91. Candidate (140,300) score 2 (r2.x1,
+        // f.x0 align) but perfect height similarity: [l,r1,r2]=median
+        // (100,10,10)=10 vs [f]=10 -> sim = 1.0. The higher-alignment
+        // candidate must still win despite being drastically less
+        // height-similar - this tier only breaks ties, never overrides
+        // alignment.
+        let l = line(rect(0.0, 50.0, 100.0));
+        let r1 = line(rect(65.0, 100.0, 10.0));
+        let r2 = line(rect(65.0, 140.0, 10.0));
+        let f = line(rect(300.0, 350.0, 10.0));
+        let all_lines = vec![l, r1, r2, f];
+        let masked: Vec<(f64, f64)> = all_lines
+            .iter()
+            .map(|ln| (ln.bbox.x0, ln.bbox.x1))
+            .collect();
+        let result = select_column_gap(&masked, &all_lines, 5.0);
+        assert_eq!(result, Some((50.0, 65.0)));
+    }
+
+    #[test]
+    fn select_column_gap_nan_interval_does_not_panic() {
+        let intervals = vec![(0.0, f64::NAN), (10.0, 20.0), (30.0, 40.0)];
+        let result = select_column_gap(&intervals, &[], 1.0);
+        let _ = result; // must not panic; NaN input's specific outcome is unspecified
+    }
+
+    #[test]
+    fn mask_bridging_obstacles_nan_width_does_not_panic() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+
+        let lines = vec![
+            line(rect(0.0, 50.0)),
+            line(rect(70.0, f64::NAN)),
+            line(rect(200.0, 250.0)),
+        ];
+        let _ = mask_bridging_obstacles(&lines);
+    }
+
+    #[test]
+    fn gap_height_similarity_returns_one_when_both_sides_match() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        let left = line(rect(0.0, 50.0));
+        let right = line(rect(70.0, 120.0));
+        assert_eq!(gap_height_similarity((50.0, 70.0), &[left, right]), 1.0);
+    }
+
+    #[test]
+    fn gap_height_similarity_decreases_as_medians_diverge() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64, y1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1,
+        };
+        let line = |bbox: crate::geometry::Rect| Line {
+            bbox,
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox,
+                text: 'x',
+                font: None,
+            }],
+        };
+        // left height 20, right height 10: diff 10 -> 1 / (1 + 10).
+        let left = line(rect(0.0, 50.0, 20.0));
+        let right = line(rect(70.0, 120.0, 10.0));
+        assert_eq!(
+            gap_height_similarity((50.0, 70.0), &[left, right]),
+            1.0 / 11.0
+        );
+    }
+
+    #[test]
+    fn gap_height_similarity_empty_side_does_not_panic() {
+        use crate::types::{Char, Line};
+
+        let rect = |x0: f64, x1: f64| crate::geometry::Rect {
+            x0,
+            y0: 0.0,
+            x1,
+            y1: 10.0,
+        };
+        let only = Line {
+            bbox: rect(0.0, 50.0),
+            upright: true,
+            confidence: 1.0,
+            chars: vec![Char {
+                bbox: rect(0.0, 50.0),
+                text: 'x',
+                font: None,
+            }],
+        };
+        // gap (100,200) sits entirely to the right of the only line, so its
+        // right partition is empty - must not panic (median_line_height's
+        // empty guard from Step 3 covers this).
+        let result = gap_height_similarity((100.0, 200.0), &[only]);
+        assert!(result.is_finite());
     }
 }
