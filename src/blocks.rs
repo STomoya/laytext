@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::geometry::{Rect, union_all};
+use crate::geometry::{Rect, margin_ratio, union_all};
 use crate::params::Params;
 use crate::types::{Block, Line};
 
@@ -56,22 +56,48 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
     // (like pdfminer's Plane) if profiling shows this dominates for
     // regions with many lines.
     let mut parent: Vec<usize> = (0..n).collect();
+    // Every qualifying neighbor pair, with the margin ratio of the distance
+    // that made it qualify — collected before roots settle, since union-find
+    // path compression during the loop can still move any node's root.
+    let mut edges: Vec<(usize, usize, f64)> = Vec::new();
     for i in 0..n {
         for j in 0..n {
             if i == j {
                 continue;
             }
+            let a = &lines[i].bbox;
+            let b = &lines[j].bbox;
             let neighbors = if lines[i].upright && lines[j].upright {
-                are_horizontal_neighbors(&lines[i].bbox, &lines[j].bbox, params)
+                are_horizontal_neighbors(a, b, params)
             } else if !lines[i].upright && !lines[j].upright {
-                are_vertical_neighbors(&lines[i].bbox, &lines[j].bbox, params)
+                are_vertical_neighbors(a, b, params)
             } else {
                 false
             };
             if neighbors {
+                let ratio = if lines[i].upright {
+                    margin_ratio(a.vdistance(b), params.line_margin * a.height())
+                } else {
+                    margin_ratio(a.hdistance(b), params.line_margin * a.width())
+                };
+                edges.push((i, j, ratio));
                 union(&mut parent, i, j);
             }
         }
+    }
+
+    // Fully compress every path so `parent[i]` is each node's final root.
+    for i in 0..n {
+        find(&mut parent, i);
+    }
+    let mut min_confidence: HashMap<usize, f64> = HashMap::new();
+    for (i, j, ratio) in edges {
+        let root = parent[i];
+        debug_assert_eq!(root, parent[j]);
+        min_confidence
+            .entry(root)
+            .and_modify(|c: &mut f64| *c = c.min(ratio))
+            .or_insert(ratio);
     }
 
     let mut order: Vec<usize> = Vec::new();
@@ -108,7 +134,7 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
                 reading_order: 0,
                 lines: block_lines,
                 tabular: false,
-                confidence: 1.0,
+                confidence: *min_confidence.get(&root).unwrap_or(&1.0),
             }
         })
         .collect()

@@ -174,3 +174,50 @@ fn side_by_side_centrally_aligned_vertical_lines_merge_into_one_block() {
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![a, b]);
 }
+
+#[test]
+fn single_line_block_has_confidence_one() {
+    let params = Params::default();
+    let a = line(rect(0.0, 0.0, 100.0, 10.0), true);
+    let blocks = group_blocks(vec![a], &params);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].confidence, 1.0);
+}
+
+#[test]
+fn block_confidence_is_high_for_closely_spaced_lines() {
+    let params = Params::default();
+    // threshold d = line_margin(0.5) * height(10) = 5; vdistance = 0.5:
+    // ratio = 1.0 - 0.5/5.0 = 0.9.
+    let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
+    let b = line(rect(0.0, 9.5, 100.0, 19.5), true);
+    let blocks = group_blocks(vec![a, b], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!((blocks[0].confidence - 0.9).abs() < 1e-9);
+}
+
+#[test]
+fn block_confidence_is_low_when_lines_barely_clear_line_margin() {
+    let params = Params::default();
+    // threshold d = line_margin(0.5) * height(10) = 5; vdistance = 4.9:
+    // ratio = 1.0 - 4.9/5.0 = 0.02.
+    let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
+    let b = line(rect(0.0, 5.1, 100.0, 15.1), true);
+    let blocks = group_blocks(vec![a, b], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!((blocks[0].confidence - 0.02).abs() < 1e-9);
+}
+
+#[test]
+fn block_confidence_reflects_the_weakest_merge_in_a_multi_line_block() {
+    let params = Params::default();
+    // a-b vdistance 0.5 (ratio 0.9); b-c vdistance 4.9 (ratio 0.02). The
+    // block's overall confidence must be the minimum across all its
+    // merges, not an average.
+    let a = line(rect(0.0, 40.0, 100.0, 50.0), true);
+    let b = line(rect(0.0, 29.5, 100.0, 39.5), true);
+    let c = line(rect(0.0, 14.6, 100.0, 24.6), true);
+    let blocks = group_blocks(vec![a, b, c], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!((blocks[0].confidence - 0.02).abs() < 1e-9);
+}
