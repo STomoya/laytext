@@ -348,6 +348,7 @@ mod tests {
                 Line {
                     bbox,
                     upright: true,
+                    confidence: 1.0,
                     chars: vec![Char {
                         bbox,
                         text: 'x',
@@ -376,6 +377,7 @@ mod tests {
                 Line {
                     bbox,
                     upright: true,
+                    confidence: 1.0,
                     chars: vec![Char {
                         bbox,
                         text: 'x',
@@ -401,6 +403,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -433,6 +436,7 @@ mod tests {
                 Line {
                     bbox,
                     upright: true,
+                    confidence: 1.0,
                     chars: vec![Char {
                         bbox,
                         text: 'x',
@@ -461,6 +465,7 @@ mod tests {
                 Line {
                     bbox,
                     upright: true,
+                    confidence: 1.0,
                     chars: vec![Char {
                         bbox,
                         text: 'x',
@@ -485,6 +490,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -516,6 +522,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -548,6 +555,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -582,6 +590,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -634,6 +643,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -670,6 +680,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -705,6 +716,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -744,6 +756,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -792,6 +805,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -820,6 +834,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -844,6 +859,7 @@ mod tests {
         let line = |bbox: crate::geometry::Rect| Line {
             bbox,
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox,
                 text: 'x',
@@ -872,6 +888,7 @@ mod tests {
         let only = Line {
             bbox: rect(0.0, 50.0),
             upright: true,
+            confidence: 1.0,
             chars: vec![Char {
                 bbox: rect(0.0, 50.0),
                 text: 'x',

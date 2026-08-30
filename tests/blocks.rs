@@ -16,6 +16,7 @@ fn line(bbox: Rect, upright: bool) -> Line {
             text: 'x',
             font: None,
         }],
+        confidence: 1.0,
     }
 }
 

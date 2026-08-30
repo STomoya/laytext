@@ -11,6 +11,7 @@ fn line(bbox: Rect) -> Line {
     Line {
         bbox,
         upright: true,
+        confidence: 1.0,
         chars: vec![Char {
             bbox,
             text: 'x',

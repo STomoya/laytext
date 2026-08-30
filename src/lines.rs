@@ -82,6 +82,7 @@ impl LineBuilder {
             }),
             upright: matches!(self.orientation, Orientation::Horizontal),
             chars: self.chars,
+            confidence: 1.0,
         }
     }
 }
