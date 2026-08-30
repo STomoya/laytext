@@ -255,12 +255,15 @@ fn ordinary_ragged_right_paragraph_is_not_tabular() {
 #[test]
 fn a_two_line_block_is_never_tabular_regardless_of_alignment() {
     let params = Params::default();
-    // Same interior-aligned shape as the tabular fixture's mid/bottom
-    // rows, but with no third line: fewer than 3 lines always gets
-    // tabular = false per spec, regardless of how aligned they are.
-    let mid = line(rect(20.0, 28.0, 80.0, 38.0), true);
-    let bottom = line(rect(20.0, 16.0, 80.0, 26.0), true);
-    let blocks = group_blocks(vec![mid, bottom], &params);
+    // Two non-upright lines touching at x=20 (a.x0 = b.x1 = 20), merged via
+    // are_vertical_neighbors (same y-range, touching in x, equal width).
+    // bbox = (0,0,40,10): x=20 is internal (not bbox's own 0 or 40) and
+    // shared by both lines — without the lines.len()<3 guard, this WOULD
+    // evaluate tabular=true (aligned_count=2, 2*2=4>2). The guard is what
+    // forces false here.
+    let a = line(rect(20.0, 0.0, 40.0, 10.0), false);
+    let b = line(rect(0.0, 0.0, 20.0, 10.0), false);
+    let blocks = group_blocks(vec![a, b], &params);
     assert_eq!(blocks.len(), 1);
     assert!(!blocks[0].tabular);
 }
