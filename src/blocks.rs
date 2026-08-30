@@ -39,6 +39,41 @@ fn are_vertical_neighbors(a: &Rect, b: &Rect, params: &Params) -> bool {
             || (((a.y0 + a.y1) - (b.y0 + b.y1)) / 2.0).abs() <= d)
 }
 
+/// Distance tolerance (points) for treating two lines' x0/x1 edges as "the
+/// same" internal boundary when counting tabular alignment.
+const TABULAR_ALIGN_TOLERANCE: f64 = 1.0;
+
+/// A block is tabular when a majority of its lines share a common x0 or x1
+/// edge that is not simply the block's own outer left/right margin: a
+/// repeated *internal* boundary (e.g. a shared table-column edge) is the
+/// geometric signature of stacked table rows, as opposed to one ragged-right
+/// paragraph, whose lines share only the block's own outer left margin.
+/// Fewer than 3 lines is never enough for "repeated" to mean anything.
+fn block_is_tabular(lines: &[Line], bbox: &Rect) -> bool {
+    if lines.len() < 3 {
+        return false;
+    }
+    let is_internal = |x: f64| {
+        (x - bbox.x0).abs() > TABULAR_ALIGN_TOLERANCE
+            && (x - bbox.x1).abs() > TABULAR_ALIGN_TOLERANCE
+    };
+    let has_repeated_internal_edge = |line: &Line| {
+        [line.bbox.x0, line.bbox.x1].into_iter().any(|x| {
+            is_internal(x)
+                && lines
+                    .iter()
+                    .filter(|other| {
+                        (other.bbox.x0 - x).abs() <= TABULAR_ALIGN_TOLERANCE
+                            || (other.bbox.x1 - x).abs() <= TABULAR_ALIGN_TOLERANCE
+                    })
+                    .count()
+                    >= 2
+        })
+    };
+    let aligned_count = lines.iter().filter(|l| has_repeated_internal_edge(l)).count();
+    aligned_count * 2 > lines.len()
+}
+
 /// Merges neighboring lines into blocks, scoped to a single region (a
 /// region's lines never merge with another region's). Direct port of
 /// pdfminer's `LTLayoutContainer.group_textlines`: for each line, find
@@ -127,13 +162,14 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
                     .then(a.bbox.x0.total_cmp(&b.bbox.x0))
             });
             let bbox = union_all(block_lines.iter().map(|l| l.bbox));
+            let tabular = block_is_tabular(&block_lines, &bbox);
             Block {
                 bbox,
                 // Placeholder: `assemble` overwrites this with the final
                 // flattened reading-order index once all regions are merged.
                 reading_order: 0,
                 lines: block_lines,
-                tabular: false,
+                tabular,
                 confidence: *min_confidence.get(&root).unwrap_or(&1.0),
             }
         })

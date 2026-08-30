@@ -221,3 +221,46 @@ fn block_confidence_reflects_the_weakest_merge_in_a_multi_line_block() {
     assert_eq!(blocks.len(), 1);
     assert!((blocks[0].confidence - 0.02).abs() < 1e-9);
 }
+
+#[test]
+fn tabular_block_with_a_repeated_internal_edge_is_flagged_tabular() {
+    let params = Params::default();
+    // A full-width top row plus two narrower rows that both start/end at
+    // the same interior x (20, 80) — not the block's own outer x0/x1 (0,
+    // 100), which only the top row touches. This repeated interior
+    // boundary (a shared cell-column edge) is the tabular signal; the top
+    // row alone shares nothing internal.
+    let top = line(rect(0.0, 40.0, 100.0, 50.0), true);
+    let mid = line(rect(20.0, 28.0, 80.0, 38.0), true);
+    let bottom = line(rect(20.0, 16.0, 80.0, 26.0), true);
+    let blocks = group_blocks(vec![top, mid, bottom], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!(blocks[0].tabular);
+}
+
+#[test]
+fn ordinary_ragged_right_paragraph_is_not_tabular() {
+    let params = Params::default();
+    // All three lines share only the block's own left margin (x0 = 0);
+    // their right edges (100, 70, 90) are all different, so no interior
+    // edge is ever repeated.
+    let a = line(rect(0.0, 40.0, 100.0, 50.0), true);
+    let b = line(rect(0.0, 28.0, 70.0, 38.0), true);
+    let c = line(rect(0.0, 16.0, 90.0, 26.0), true);
+    let blocks = group_blocks(vec![a, b, c], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!(!blocks[0].tabular);
+}
+
+#[test]
+fn a_two_line_block_is_never_tabular_regardless_of_alignment() {
+    let params = Params::default();
+    // Same interior-aligned shape as the tabular fixture's mid/bottom
+    // rows, but with no third line: fewer than 3 lines always gets
+    // tabular = false per spec, regardless of how aligned they are.
+    let mid = line(rect(20.0, 28.0, 80.0, 38.0), true);
+    let bottom = line(rect(20.0, 16.0, 80.0, 26.0), true);
+    let blocks = group_blocks(vec![mid, bottom], &params);
+    assert_eq!(blocks.len(), 1);
+    assert!(!blocks[0].tabular);
+}
