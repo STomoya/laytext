@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-#[pyclass(eq, eq_int)]
+#[pyclass(eq, eq_int, from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Strategy {
     #[default]
@@ -148,6 +148,84 @@ mod tests {
             let obj = PyString::new(py, "not params");
             let extracted: Result<Params, _> = obj.extract();
             assert!(extracted.is_err());
+        });
+    }
+
+    #[test]
+    fn strategy_variants_compare_via_pyo3_eq() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let a = pyo3::Py::new(py, Strategy::Pdfminer).unwrap();
+            let b = pyo3::Py::new(py, Strategy::XyCut).unwrap();
+            let c = pyo3::Py::new(py, Strategy::Pdfminer).unwrap();
+            use pyo3::types::PyAnyMethods;
+            assert!(a.bind(py).as_any().eq(c.bind(py)).unwrap());
+            assert!(!a.bind(py).as_any().eq(b.bind(py)).unwrap());
+        });
+    }
+
+    #[test]
+    fn strategy_extracts_from_python_object() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
+            let extracted: Strategy = obj.extract(py).unwrap();
+            assert_eq!(extracted, Strategy::XyCut);
+        });
+    }
+
+    #[test]
+    fn strategy_extraction_fails_for_wrong_python_type() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::{PyAnyMethods, PyString};
+            let obj = PyString::new(py, "not a strategy");
+            let extracted: Result<Strategy, _> = obj.extract();
+            assert!(extracted.is_err());
+        });
+    }
+
+    #[test]
+    fn strategy_compares_equal_to_its_raw_int_value() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::PyAnyMethods;
+            use pyo3::IntoPyObject;
+            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
+            let one = 1i64.into_pyobject(py).unwrap();
+            assert!(obj.bind(py).as_any().eq(one).unwrap());
+        });
+    }
+
+    #[test]
+    fn strategy_repr_and_int_reported_via_python_builtins() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::{PyAnyMethods, PyDict};
+            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
+            let globals = PyDict::new(py);
+            globals.set_item("s", obj).unwrap();
+            let result = py
+                .eval(
+                    std::ffi::CStr::from_bytes_with_nul(b"(repr(s), int(s))\0").unwrap(),
+                    Some(&globals),
+                    None,
+                )
+                .unwrap();
+            let (repr, as_int): (String, i64) = result.extract().unwrap();
+            assert!(repr.contains("XyCut"));
+            assert_eq!(as_int, 1);
+        });
+    }
+
+    #[test]
+    fn strategy_compares_unequal_to_an_incompatible_python_type() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            use pyo3::types::{PyAnyMethods, PyString};
+            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
+            let s = PyString::new(py, "not a strategy");
+            assert!(!obj.bind(py).as_any().eq(s).unwrap());
         });
     }
 }
