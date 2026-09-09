@@ -161,6 +161,8 @@ mod tests {
             use pyo3::types::PyAnyMethods;
             assert!(a.bind(py).as_any().eq(c.bind(py)).unwrap());
             assert!(!a.bind(py).as_any().eq(b.bind(py)).unwrap());
+            assert!(a.bind(py).as_any().ne(b.bind(py)).unwrap());
+            assert!(!a.bind(py).as_any().ne(c.bind(py)).unwrap());
         });
     }
 
