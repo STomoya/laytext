@@ -1,5 +1,13 @@
 use pyo3::prelude::*;
 
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Strategy {
+    #[default]
+    Pdfminer,
+    XyCut,
+}
+
 #[pyclass(get_all, from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Params {
@@ -7,10 +15,15 @@ pub struct Params {
     pub line_overlap: f64,
     pub line_margin: f64,
     pub word_margin: f64,
+    /// XyCut-strategy only; unused by the default Pdfminer strategy.
     pub column_gap_min: Option<f64>,
+    /// XyCut-strategy only; unused by the default Pdfminer strategy.
     pub row_gap_min: Option<f64>,
+    /// XyCut-strategy only; unused by the default Pdfminer strategy.
     pub full_width_threshold: f64,
     pub detect_vertical: bool,
+    pub segmentation: Strategy,
+    pub boxes_flow: f64,
 }
 
 impl Default for Params {
@@ -24,6 +37,8 @@ impl Default for Params {
             row_gap_min: None,
             full_width_threshold: 0.9,
             detect_vertical: false,
+            segmentation: Strategy::Pdfminer,
+            boxes_flow: 0.5,
         }
     }
 }
@@ -34,7 +49,7 @@ impl Params {
     #[pyo3(signature = (
         char_margin=2.0, line_overlap=0.5, line_margin=0.5, word_margin=0.1,
         column_gap_min=None, row_gap_min=None, full_width_threshold=0.9,
-        detect_vertical=false,
+        detect_vertical=false, segmentation=Strategy::Pdfminer, boxes_flow=0.5,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn py_new(
@@ -46,6 +61,8 @@ impl Params {
         row_gap_min: Option<f64>,
         full_width_threshold: f64,
         detect_vertical: bool,
+        segmentation: Strategy,
+        boxes_flow: f64,
     ) -> Self {
         Params {
             char_margin,
@@ -56,13 +73,15 @@ impl Params {
             row_gap_min,
             full_width_threshold,
             detect_vertical,
+            segmentation,
+            boxes_flow,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Params;
+    use super::{Params, Strategy};
 
     #[test]
     fn defaults_match_pdfminer_laparams_defaults() {
@@ -75,11 +94,24 @@ mod tests {
         assert_eq!(p.row_gap_min, None);
         assert_eq!(p.full_width_threshold, 0.9);
         assert!(!p.detect_vertical);
+        assert_eq!(p.segmentation, Strategy::Pdfminer);
+        assert_eq!(p.boxes_flow, 0.5);
     }
 
     #[test]
     fn py_new_assigns_all_fields_from_arguments() {
-        let p = Params::py_new(1.0, 2.0, 3.0, 4.0, Some(5.0), Some(6.0), 7.0, true);
+        let p = Params::py_new(
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            Some(5.0),
+            Some(6.0),
+            7.0,
+            true,
+            Strategy::XyCut,
+            0.25,
+        );
         assert_eq!(p.char_margin, 1.0);
         assert_eq!(p.line_overlap, 2.0);
         assert_eq!(p.line_margin, 3.0);
@@ -88,6 +120,13 @@ mod tests {
         assert_eq!(p.row_gap_min, Some(6.0));
         assert_eq!(p.full_width_threshold, 7.0);
         assert!(p.detect_vertical);
+        assert_eq!(p.segmentation, Strategy::XyCut);
+        assert_eq!(p.boxes_flow, 0.25);
+    }
+
+    #[test]
+    fn strategy_default_is_pdfminer() {
+        assert_eq!(Strategy::default(), Strategy::Pdfminer);
     }
 
     #[test]
