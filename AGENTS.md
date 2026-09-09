@@ -21,11 +21,16 @@ algorithm cannot.
 
 ## Architecture
 
-Per-page pipeline: char boxes → line grouping → region segmentation (X-Y
-cut: a forced full-width band split takes priority; otherwise whichever
-axis — column or row — has the wider whitespace gap wins, handles
-multi-column) → line→block merge (scoped per region, never crosses a
-region boundary) → reading-order assembly. The document-level entry point
+Per-page pipeline (`Params.segmentation`, default `Strategy.Pdfminer`):
+char boxes → line grouping → line→block merge (flat, whole page) →
+reading-order assembly via a port of pdfminer's own `group_textboxes`
+(distance-based hierarchical box clustering, driven by `boxes_flow`).
+`Strategy.XyCut` (opt-in) instead runs: char boxes → line grouping →
+region segmentation (X-Y cut: a forced full-width band split takes
+priority; otherwise whichever axis — column or row — has the wider
+whitespace gap wins, handles multi-column) → line→block merge (scoped per
+region, never crosses a region boundary) → reading-order assembly from
+the region tree's own order. The document-level entry point
 batches all pages into one call, releases the GIL, and processes pages in
 parallel via `rayon` (pages share no state). A lower-level `group_lines`/
 `group_lines_document` entry point also exists for callers that only need
@@ -41,9 +46,11 @@ laytext/
     types.rs           # Page, PageInput, Block, Line, Char, FontInfo, Rect
     geometry.rs         # Rect ops, overlap/distance, whitespace-gap projection
     lines.rs            # char -> line grouping (port of pdfminer group_objects)
-    segmentation.rs      # recursive X-Y cut -> region tree
-    blocks.rs            # line -> block merge (port of pdfminer group_textboxes), per-region
-    assemble.rs          # region tree + blocks -> final Page, reading order
+    segmentation.rs      # recursive X-Y cut -> region tree (Strategy.XyCut only)
+    blocks.rs            # line -> block merge (port of pdfminer group_textlines)
+    reading_order.rs      # block ordering (port of pdfminer group_textboxes,
+                           # Strategy.Pdfminer default) or region-tree flatten
+    assemble.rs          # branches on Strategy; blocks -> final Page, reading order
     params.rs            # Params struct
   tests/                 # Rust integration tests (cargo test) — owns all
     lines.rs              # algorithm/logic correctness testing
@@ -107,10 +114,16 @@ aren't subject to this workflow.
   Every threshold (char/line size, baseline, margins) must have a
   geometry-only fallback derived from char bbox dimensions — the primary
   target input (OCR'd scanned books) has no reliable font data.
-- Block-merging (line → block) always runs scoped to a single region;
-  region segmentation (the X-Y cut) always runs first, so merges can never
-  cross a column boundary.
-- `column_gap_min` / `row_gap_min` are `Option<f64>` in `Params`. When
+- Under `Strategy.XyCut`, block-merging (line → block) always runs scoped
+  to a single region; region segmentation (the X-Y cut) always runs first,
+  so merges can never cross a column boundary. Under the default
+  `Strategy.Pdfminer`, block-merging runs flat over the whole page (no
+  region tree) — matching pdfminer's own behavior, where multi-column
+  separation instead falls out of `group_textboxes`'s distance-based
+  clustering during reading-order assembly, not a prior segmentation pass.
+- `column_gap_min` / `row_gap_min` / `full_width_threshold` apply only to
+  `Strategy.XyCut`; the default `Strategy.Pdfminer` ignores them.
+  `column_gap_min` / `row_gap_min` are `Option<f64>` in `Params`. When
   `None`, `segment()` (`src/segmentation.rs`) derives the threshold per
   region from that region's median line height (geometry-only, no font
   metrics), recomputed at each recursion level so nested regions with
@@ -166,9 +179,13 @@ aren't subject to this workflow.
 1. **M1 – Single-column line grouping**: char → line grouping ported from
    pdfminer; PyO3 binding for a single page; matches pdfminer output on
    single-column real-data samples.
-2. **M2 – Multi-column block grouping**: region segmentation (X-Y cut) and
-   region-scoped line → block merge; verified no cross-gutter merges on
-   multi-column real-data samples.
+2. **M2 – Multi-column block grouping**: reading order via a port of
+   pdfminer's `group_textboxes` distance-based clustering (default
+   `Strategy.Pdfminer`), plus region segmentation (X-Y cut) and
+   region-scoped line → block merge as an opt-in `Strategy.XyCut`;
+   verified no cross-gutter merges on multi-column real-data samples under
+   `Strategy.XyCut`, and correct column ordering without a region tree
+   under `Strategy.Pdfminer`.
 3. **M3 – Full hierarchical single-page output**: reading-order assembly;
    `analyze_page` returns the complete `Page → Block → Line → Char` tree.
 4. **M4 – Multi-page batching**: `analyze_document` entry point, GIL
