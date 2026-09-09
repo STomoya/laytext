@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use assemble::assemble as assemble_impl;
 use geometry::Rect;
 use lines::group_lines as group_lines_impl;
-use params::Params;
+use params::{Params, Strategy};
 use rayon::prelude::*;
 use types::{Block, Char, FontInfo, Line, Page, PageInput};
 
@@ -223,6 +223,8 @@ mod _core {
     use crate::Params;
     #[pymodule_export]
     use crate::Rect;
+    #[pymodule_export]
+    use crate::Strategy;
     #[pymodule_export]
     use crate::analyze_document_py;
     #[pymodule_export]

@@ -50,15 +50,22 @@ class PageInput:
     chars: list[Char]
     def __init__(self, chars: list[Char], width: float, height: float) -> None: ...
 
+class Strategy:
+    Pdfminer: Strategy
+    XyCut: Strategy
+
 class Params:
     char_margin: float
     line_overlap: float
     line_margin: float
     word_margin: float
+    # XyCut-strategy only; unused by the default Pdfminer strategy.
     column_gap_min: float | None
     row_gap_min: float | None
     full_width_threshold: float
     detect_vertical: bool
+    segmentation: Strategy
+    boxes_flow: float
     def __init__(
         self,
         char_margin: float = 2.0,
@@ -69,6 +76,8 @@ class Params:
         row_gap_min: float | None = None,
         full_width_threshold: float = 0.9,
         detect_vertical: bool = False,
+        segmentation: Strategy = ...,
+        boxes_flow: float = 0.5,
     ) -> None: ...
 
 def group_lines(chars: list[Char], params: Params) -> list[Line]: ...
