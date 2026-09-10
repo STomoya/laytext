@@ -50,10 +50,6 @@ class PageInput:
     chars: list[Char]
     def __init__(self, chars: list[Char], width: float, height: float) -> None: ...
 
-class Strategy:
-    Pdfminer: Strategy
-    XyCut: Strategy
-
 class Params:
     char_margin: float
     line_overlap: float
@@ -64,7 +60,9 @@ class Params:
     row_gap_min: float | None
     full_width_threshold: float
     detect_vertical: bool
-    segmentation: Strategy
+    # `Strategy` (a StrEnum defined in laytext/__init__.py) is str-valued
+    # and accepted/returned here as a plain str across the FFI boundary.
+    segmentation: str
     boxes_flow: float
     def __init__(
         self,
@@ -76,7 +74,7 @@ class Params:
         row_gap_min: float | None = None,
         full_width_threshold: float = 0.9,
         detect_vertical: bool = False,
-        segmentation: Strategy = ...,
+        segmentation: str = ...,
         boxes_flow: float = 0.5,
     ) -> None: ...
 

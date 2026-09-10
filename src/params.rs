@@ -1,11 +1,61 @@
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-#[pyclass(eq, eq_int, from_py_object)]
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+/// Plain Rust enum, not a `#[pyclass]`: pyo3-macros-backend 0.28's protocol-
+/// slot wrapper codegen (`generate_type_slot` in `pymethod.rs`) emits the
+/// FFI trampoline for any `#[pymethods]` `__int__`/`__repr__` with an
+/// unspanned `quote!`, so its coverage region always maps to the enclosing
+/// attribute rather than the body — permanently unreachable-looking to
+/// `cargo llvm-cov` regardless of who writes the method. The Python-facing
+/// `Strategy` enum (with real `str()`/`repr()` support) is instead a plain
+/// `enum.StrEnum` in `python/laytext/__init__.py`; this type only needs to
+/// convert to/from a plain string at the FFI boundary, which uses pyo3's own
+/// already-correct built-in string conversion and no macro codegen of ours.
+///
+/// Deliberately string-keyed rather than ordinal/int-keyed: an ordinal
+/// mapping (`Pdfminer = 0`, `XyCut = 1`) silently breaks if a future
+/// variant's Rust declaration order and Python value ever drift apart.
+/// A name mismatch here fails loudly (`ValueError`) instead of silently
+/// picking the wrong strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Strategy {
     #[default]
     Pdfminer,
     XyCut,
+}
+
+impl Strategy {
+    fn as_str(self) -> &'static str {
+        match self {
+            Strategy::Pdfminer => "pdfminer",
+            Strategy::XyCut => "xycut",
+        }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for Strategy {
+    type Target = <&'static str as IntoPyObject<'py>>::Target;
+    type Output = <&'static str as IntoPyObject<'py>>::Output;
+    type Error = <&'static str as IntoPyObject<'py>>::Error;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.as_str().into_pyobject(py)
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for Strategy {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let s: String = obj.extract()?;
+        match s.as_str() {
+            "pdfminer" => Ok(Strategy::Pdfminer),
+            "xycut" => Ok(Strategy::XyCut),
+            other => Err(PyValueError::new_err(format!(
+                "{other:?} is not a valid Strategy"
+            ))),
+        }
+    }
 }
 
 #[pyclass(get_all, from_py_object)]
@@ -152,32 +202,32 @@ mod tests {
     }
 
     #[test]
-    fn strategy_variants_compare_via_pyo3_eq() {
+    fn strategy_into_pyobject_returns_the_expected_str_value() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            let a = pyo3::Py::new(py, Strategy::Pdfminer).unwrap();
-            let b = pyo3::Py::new(py, Strategy::XyCut).unwrap();
-            let c = pyo3::Py::new(py, Strategy::Pdfminer).unwrap();
             use pyo3::types::PyAnyMethods;
-            assert!(a.bind(py).as_any().eq(c.bind(py)).unwrap());
-            assert!(!a.bind(py).as_any().eq(b.bind(py)).unwrap());
-            assert!(a.bind(py).as_any().ne(b.bind(py)).unwrap());
-            assert!(!a.bind(py).as_any().ne(c.bind(py)).unwrap());
+            use pyo3::IntoPyObject;
+            let pdfminer = Strategy::Pdfminer.into_pyobject(py).unwrap();
+            let xycut = Strategy::XyCut.into_pyobject(py).unwrap();
+            assert_eq!(pdfminer.extract::<String>().unwrap(), "pdfminer");
+            assert_eq!(xycut.extract::<String>().unwrap(), "xycut");
         });
     }
 
     #[test]
-    fn strategy_extracts_from_python_object() {
+    fn strategy_extracts_from_a_python_str() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
-            let extracted: Strategy = obj.extract(py).unwrap();
-            assert_eq!(extracted, Strategy::XyCut);
+            use pyo3::types::{PyAnyMethods, PyString};
+            let pdfminer = PyString::new(py, "pdfminer");
+            let xycut = PyString::new(py, "xycut");
+            assert_eq!(pdfminer.extract::<Strategy>().unwrap(), Strategy::Pdfminer);
+            assert_eq!(xycut.extract::<Strategy>().unwrap(), Strategy::XyCut);
         });
     }
 
     #[test]
-    fn strategy_extraction_fails_for_wrong_python_type() {
+    fn strategy_extraction_fails_for_a_str_with_no_matching_variant() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
             use pyo3::types::{PyAnyMethods, PyString};
@@ -188,46 +238,14 @@ mod tests {
     }
 
     #[test]
-    fn strategy_compares_equal_to_its_raw_int_value() {
+    fn strategy_extraction_fails_for_wrong_python_type() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
             use pyo3::types::PyAnyMethods;
             use pyo3::IntoPyObject;
-            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
-            let one = 1i64.into_pyobject(py).unwrap();
-            assert!(obj.bind(py).as_any().eq(one).unwrap());
-        });
-    }
-
-    #[test]
-    fn strategy_repr_and_int_reported_via_python_builtins() {
-        pyo3::Python::initialize();
-        pyo3::Python::attach(|py| {
-            use pyo3::types::{PyAnyMethods, PyDict};
-            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
-            let globals = PyDict::new(py);
-            globals.set_item("s", obj).unwrap();
-            let result = py
-                .eval(
-                    std::ffi::CStr::from_bytes_with_nul(b"(repr(s), int(s))\0").unwrap(),
-                    Some(&globals),
-                    None,
-                )
-                .unwrap();
-            let (repr, as_int): (String, i64) = result.extract().unwrap();
-            assert!(repr.contains("XyCut"));
-            assert_eq!(as_int, 1);
-        });
-    }
-
-    #[test]
-    fn strategy_compares_unequal_to_an_incompatible_python_type() {
-        pyo3::Python::initialize();
-        pyo3::Python::attach(|py| {
-            use pyo3::types::{PyAnyMethods, PyString};
-            let obj = pyo3::Py::new(py, Strategy::XyCut).unwrap();
-            let s = PyString::new(py, "not a strategy");
-            assert!(!obj.bind(py).as_any().eq(s).unwrap());
+            let obj = 1i64.into_pyobject(py).unwrap();
+            let extracted: Result<Strategy, _> = obj.extract();
+            assert!(extracted.is_err());
         });
     }
 }
