@@ -55,10 +55,15 @@ class Params:
     line_overlap: float
     line_margin: float
     word_margin: float
+    # XyCut-strategy only; unused by the default Pdfminer strategy.
     column_gap_min: float | None
     row_gap_min: float | None
     full_width_threshold: float
     detect_vertical: bool
+    # `Strategy` (a StrEnum defined in laytext/__init__.py) is str-valued
+    # and accepted/returned here as a plain str across the FFI boundary.
+    segmentation: str
+    boxes_flow: float
     def __init__(
         self,
         char_margin: float = 2.0,
@@ -69,6 +74,8 @@ class Params:
         row_gap_min: float | None = None,
         full_width_threshold: float = 0.9,
         detect_vertical: bool = False,
+        segmentation: str = "pdfminer",
+        boxes_flow: float = 0.5,
     ) -> None: ...
 
 def group_lines(chars: list[Char], params: Params) -> list[Line]: ...

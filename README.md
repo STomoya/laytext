@@ -36,10 +36,11 @@ for page in pages:
             print(''.join(ch.text for ch in line.chars))
 ```
 
-`Params()` with no arguments auto-derives its column/row gap thresholds
-from each region's text size — pass `column_gap_min` / `row_gap_min`
-explicitly to override. See `SPEC.md` for the full design and `AGENTS.md`
-for repo/dev conventions.
+`Params()` with no arguments defaults to `Strategy.Pdfminer`: reading
+order comes from a port of pdfminer's own `group_textboxes` clustering,
+tuned via `boxes_flow`. `column_gap_min` / `row_gap_min` /
+`full_width_threshold` only apply under the opt-in `Strategy.XyCut`. See
+`SPEC.md` for the full design and `AGENTS.md` for repo/dev conventions.
 
 ## License
 

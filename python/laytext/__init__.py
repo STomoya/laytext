@@ -1,5 +1,7 @@
 """Laytext."""
 
+from enum import StrEnum
+
 from laytext._core import (
     Block,
     Char,
@@ -16,6 +18,14 @@ from laytext._core import (
 )
 from laytext._version import __version__
 
+
+class Strategy(StrEnum):
+    """Block-detection/reading-order strategy. See `Params.segmentation`."""
+
+    Pdfminer = 'pdfminer'
+    XyCut = 'xycut'
+
+
 __all__ = [
     'Block',
     'Char',
@@ -25,6 +35,7 @@ __all__ = [
     'PageInput',
     'Params',
     'Rect',
+    'Strategy',
     '__version__',
     'analyze_document',
     'analyze_page',
