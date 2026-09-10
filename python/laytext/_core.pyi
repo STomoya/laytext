@@ -74,7 +74,7 @@ class Params:
         row_gap_min: float | None = None,
         full_width_threshold: float = 0.9,
         detect_vertical: bool = False,
-        segmentation: str = ...,
+        segmentation: str = "pdfminer",
         boxes_flow: float = 0.5,
     ) -> None: ...
 

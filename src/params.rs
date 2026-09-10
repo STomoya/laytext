@@ -47,8 +47,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Strategy {
     type Error = PyErr;
 
     fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let s: String = obj.extract()?;
-        match s.as_str() {
+        let s: &str = obj.extract()?;
+        match s {
             "pdfminer" => Ok(Strategy::Pdfminer),
             "xycut" => Ok(Strategy::XyCut),
             other => Err(PyValueError::new_err(format!(
@@ -205,8 +205,8 @@ mod tests {
     fn strategy_into_pyobject_returns_the_expected_str_value() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            use pyo3::types::PyAnyMethods;
             use pyo3::IntoPyObject;
+            use pyo3::types::PyAnyMethods;
             let pdfminer = Strategy::Pdfminer.into_pyobject(py).unwrap();
             let xycut = Strategy::XyCut.into_pyobject(py).unwrap();
             assert_eq!(pdfminer.extract::<String>().unwrap(), "pdfminer");
@@ -241,8 +241,8 @@ mod tests {
     fn strategy_extraction_fails_for_wrong_python_type() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            use pyo3::types::PyAnyMethods;
             use pyo3::IntoPyObject;
+            use pyo3::types::PyAnyMethods;
             let obj = 1i64.into_pyobject(py).unwrap();
             let extracted: Result<Strategy, _> = obj.extract();
             assert!(extracted.is_err());

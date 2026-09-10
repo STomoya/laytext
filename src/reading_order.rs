@@ -20,7 +20,12 @@ fn dist(a: &Rect, b: &Rect) -> f64 {
 fn isany(a: usize, b: usize, active: &HashSet<usize>, bboxes: &[Rect]) -> bool {
     let union = bboxes[a].union(&bboxes[b]);
     active.iter().any(|&id| {
-        id != a && id != b && bboxes[id].is_hoverlap(&union) && bboxes[id].is_voverlap(&union)
+        id != a
+            && id != b
+            && bboxes[id].x0 < union.x1
+            && bboxes[id].x1 > union.x0
+            && bboxes[id].y0 < union.y1
+            && bboxes[id].y1 > union.y0
     })
 }
 
@@ -82,8 +87,11 @@ fn collect_ordered(id: usize, n: usize, tree: &Tree, boxes_flow: f64, out: &mut 
     let mut children = tree.group_children[id - n];
     let parent_vertical = tree.vertical[id];
     children.sort_by(|&x, &y| {
-        sort_key(parent_vertical, &tree.bboxes[x], boxes_flow)
-            .total_cmp(&sort_key(parent_vertical, &tree.bboxes[y], boxes_flow))
+        sort_key(parent_vertical, &tree.bboxes[x], boxes_flow).total_cmp(&sort_key(
+            parent_vertical,
+            &tree.bboxes[y],
+            boxes_flow,
+        ))
     });
     for c in children {
         collect_ordered(c, n, tree, boxes_flow, out);
@@ -154,6 +162,9 @@ pub fn order_blocks(blocks: Vec<Block>, boxes_flow: f64) -> Vec<Block> {
             });
         }
         active.insert(new_id);
+        if active.len() <= 1 {
+            break;
+        }
     }
 
     let tree = Tree {
@@ -166,7 +177,10 @@ pub fn order_blocks(blocks: Vec<Block>, boxes_flow: f64) -> Vec<Block> {
     collect_ordered(root, n, &tree, boxes_flow, &mut order);
 
     let mut owned: Vec<Option<Block>> = blocks.into_iter().map(Some).collect();
-    order.into_iter().map(|i| owned[i].take().unwrap()).collect()
+    order
+        .into_iter()
+        .map(|i| owned[i].take().unwrap())
+        .collect()
 }
 
 #[cfg(test)]
@@ -225,6 +239,17 @@ mod tests {
     fn isany_false_when_nothing_sits_between_the_pair() {
         let bboxes = vec![rect(0.0, 0.0, 10.0, 10.0), rect(40.0, 0.0, 50.0, 10.0)];
         let active: HashSet<usize> = [0, 1].into_iter().collect();
+        assert!(!isany(0, 1, &active, &bboxes));
+    }
+
+    #[test]
+    fn isany_false_when_a_third_box_only_touches_the_union_boundary() {
+        let bboxes = vec![
+            rect(0.0, 0.0, 10.0, 10.0),
+            rect(20.0, 0.0, 30.0, 10.0),
+            rect(10.0, 10.0, 40.0, 20.0),
+        ];
+        let active: HashSet<usize> = [0, 1, 2].into_iter().collect();
         assert!(!isany(0, 1, &active, &bboxes));
     }
 

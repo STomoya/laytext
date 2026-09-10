@@ -345,12 +345,13 @@ def compare_corpus(
 def print_granularity_report(label: str, stats: dict, hard_fails: bool) -> bool:
     """Print one granularity's (line/block) section; return whether its hard tolerance check passes.
 
-    Block bboxes are expected to diverge from pdfminer's — that's the whole
-    point of Strategy.Pdfminer's group_textboxes-driven reading order, which
-    clusters lines into blocks differently than pdfminer's own grouping in
-    general. So only line-level hard violations are release-blocking
-    (`hard_fails=False` for blocks): block deltas are logged for review, not
-    failed on.
+    Block bboxes can diverge from pdfminer's: `group_textboxes` only assigns
+    reading order to already-formed blocks, it doesn't cluster lines into
+    blocks — that's `group_textlines` (ported in blocks.rs, same for both
+    strategies). Divergence instead traces back to char-extraction-backend
+    differences or geometry-only vs font-metric margins. So only line-level
+    hard violations are release-blocking (`hard_fails=False` for blocks):
+    block deltas are logged for review, not failed on.
     """
     unmatched_pages = stats['unmatched_pages']
     print(f'\nmatched {label}s: {stats["total_matched"]}')
