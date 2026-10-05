@@ -29,6 +29,7 @@ class Char:
 class Line:
     bbox: Rect
     upright: bool
+    """Horizontal writing direction on the displayed page, i.e. after /Rotate; independent of `bbox`'s frame."""
     chars: list[Char]
     confidence: float
     def __init__(self, bbox: Rect, upright: bool, chars: list[Char], confidence: float = 1.0) -> None: ...

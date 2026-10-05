@@ -139,10 +139,13 @@ fn map_page_bboxes(page: Page, f: impl Fn(Rect) -> Rect, width: f64, height: f64
 }
 
 /// Full per-page pipeline. `chars`, `width` and `height` are in unrotated
-/// PDF user space; `rotation` is the page's `/Rotate` (0/90/180/270). The
-/// pipeline runs on the upright page, and every output bbox is mapped back
-/// into the caller's unrotated space.
+/// PDF user space; `rotation` is the page's `/Rotate` (any multiple of 90).
+/// The pipeline runs on the upright page, and every output bbox is mapped
+/// back into the caller's unrotated space. `Line.upright` stays relative to
+/// the displayed page: it is the text's writing direction as read, not the
+/// aspect of its returned bbox.
 pub fn analyze(chars: Vec<Char>, width: f64, height: f64, rotation: i32, params: &Params) -> Page {
+    let rotation = rotation.rem_euclid(360);
     let (up_w, up_h) = if rotation % 180 == 90 {
         (height, width)
     } else {

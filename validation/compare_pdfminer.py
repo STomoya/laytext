@@ -204,7 +204,7 @@ def display_char_boxes(page: pdfium.PdfPage) -> tuple[list[tuple[BBox, str]], BB
     x0, y0, x1, y1 = page.get_mediabox()
     w, h = x1 - x0, y1 - y0
     boxes = [(to_display_bbox(box, rotation, w, h), text) for box, text in extract_page_char_boxes(page)]
-    return boxes, (0.0, 0.0, *page.get_size())
+    return boxes, (0.0, 0.0, h, w) if rotation in (90, 270) else (0.0, 0.0, w, h)
 
 
 def extract_page_chars(page: pdfium.PdfPage) -> list[laytext.Char]:

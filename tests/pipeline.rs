@@ -364,3 +364,16 @@ fn rotated_page_groups_the_same_as_its_upright_version() {
         );
     }
 }
+
+#[test]
+fn analyze_normalizes_unnormalized_right_angle_rotations() {
+    let params = Params::default();
+    let chars = [word(10.0, 170.0, "two"), word(10.0, 20.0, "foot")].concat();
+    for (raw, normalized) in [(-90, 270), (450, 90), (-180, 180), (360, 0)] {
+        assert_eq!(
+            analyze(chars.clone(), 200.0, 300.0, raw, &params),
+            analyze(chars.clone(), 200.0, 300.0, normalized, &params),
+            "rotation {raw}"
+        );
+    }
+}
