@@ -42,6 +42,11 @@ tuned via `boxes_flow`. `column_gap_min` / `row_gap_min` /
 `full_width_threshold` only apply under the opt-in `Strategy.XyCut`. See
 `SPEC.md` for the full design and `AGENTS.md` for repo/dev conventions.
 
+For pages with a PDF `/Rotate`, pass chars, `width` and `height` in
+unrotated user space (as pypdfium2's `get_charbox`/`get_mediabox` return
+them) plus `rotation=page.get_rotation()` (any multiple of 90). Layout runs
+on the upright page; every output bbox stays in that unrotated space.
+
 ## License
 
 Apache 2.0 — see `LICENSE`.

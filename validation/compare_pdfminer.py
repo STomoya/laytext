@@ -172,6 +172,41 @@ def extract_page_char_boxes(page: pdfium.PdfPage) -> list[tuple[BBox, str]]:
     return chars
 
 
+def to_display_bbox(bbox: BBox, rotation: int, width: float, height: float) -> BBox:
+    """Map a bbox from unrotated PDF user space into the page's /Rotate display frame.
+
+    width/height are the unrotated page size. Same transform as pdfminer's CTM and laytext's Rect.rotated; pdfminer
+    reports bboxes in this display frame, laytext in the unrotated one.
+    """
+    x0, y0, x1, y1 = bbox
+    match rotation:
+        case 90:
+            return (y0, width - x1, y1, width - x0)
+        case 180:
+            return (width - x1, height - y1, width - x0, height - y0)
+        case 270:
+            return (height - y1, x0, height - y0, x1)
+        case _:
+            return bbox
+
+
+def page_input(page: pdfium.PdfPage) -> laytext.PageInput:
+    """Laytext input for one pypdfium2 page: unrotated char boxes and mediabox size, plus /Rotate."""
+    x0, y0, x1, y1 = page.get_mediabox()
+    return laytext.PageInput(extract_page_chars(page), x1 - x0, y1 - y0, page.get_rotation())
+
+
+def display_char_boxes(page: pdfium.PdfPage) -> tuple[list[tuple[BBox, str]], BBox]:
+    """pypdfium2 char boxes mapped into the page's display frame, plus that frame's page bbox."""
+    rotation = page.get_rotation()
+    if rotation == 0:
+        return extract_page_char_boxes(page), page.get_mediabox()
+    x0, y0, x1, y1 = page.get_mediabox()
+    w, h = x1 - x0, y1 - y0
+    boxes = [(to_display_bbox(box, rotation, w, h), text) for box, text in extract_page_char_boxes(page)]
+    return boxes, (0.0, 0.0, h, w) if rotation in (90, 270) else (0.0, 0.0, w, h)
+
+
 def extract_page_chars(page: pdfium.PdfPage) -> list[laytext.Char]:
     """pypdfium2 char boxes for one page, as laytext.Char."""
     return [laytext.Char(laytext.Rect(*box), text) for box, text in extract_page_char_boxes(page)]
@@ -251,7 +286,7 @@ def analyze_pdf_pdfminer_pypdfium2chars(pdf_path: pathlib.Path, la_params: pdfmi
     """Run pdfminer's grouping on pypdfium2 char boxes."""
     pdf = pdfium.PdfDocument(str(pdf_path))
     # Char extraction is upstream work excluded from the timed section, same as analyze_pdf_laytext.
-    per_page = [(extract_page_char_boxes(pdf[i]), pdf[i].get_mediabox()) for i in range(len(pdf))]
+    per_page = [display_char_boxes(pdf[i]) for i in range(len(pdf))]
 
     t0 = time.perf_counter()
     results = [
@@ -268,21 +303,20 @@ def analyze_pdf_laytext(pdf_path: pathlib.Path, params: laytext.Params) -> Analy
     pdf = pdfium.PdfDocument(str(pdf_path))
     # Char extraction is upstream work the caller always pays regardless of
     # which layout engine runs, so it's excluded from the timed section.
-    page_inputs = []
-    for i in range(len(pdf)):
-        x0, y0, x1, y1 = pdf[i].get_mediabox()
-        page_inputs.append(laytext.PageInput(extract_page_chars(pdf[i]), x1 - x0, y1 - y0))
+    page_inputs = [page_input(pdf[i]) for i in range(len(pdf))]
 
     t0 = time.perf_counter()
     lt_pages = laytext.analyze_document(page_inputs, params)
     elapsed = time.perf_counter() - t0
 
     line_pages, block_pages = [], []
-    for page in lt_pages:
-        line_pages.append(
-            [(line.bbox.x0, line.bbox.y0, line.bbox.x1, line.bbox.y1) for block in page.blocks for line in block.lines]
-        )
-        block_pages.append([(block.bbox.x0, block.bbox.y0, block.bbox.x1, block.bbox.y1) for block in page.blocks])
+    for inp, page in zip(page_inputs, lt_pages, strict=True):
+
+        def display(r: laytext.Rect, inp: laytext.PageInput = inp) -> BBox:
+            return to_display_bbox((r.x0, r.y0, r.x1, r.y1), inp.rotation, inp.width, inp.height)
+
+        line_pages.append([display(line.bbox) for block in page.blocks for line in block.lines])
+        block_pages.append([display(block.bbox) for block in page.blocks])
     return elapsed, line_pages, block_pages
 
 
