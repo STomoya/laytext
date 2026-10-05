@@ -9,6 +9,7 @@ helper functions (char extraction, pdfminer box-finding) this script reuses.
 Usage:
   uv run python validation/visualize_page.py data/pdfs/FILE.pdf --page 0 --out page.png
   uv run python validation/visualize_page.py data/pdfs/FILE.pdf --page 0 --blocks --out page.png
+  uv run python validation/visualize_page.py data/pdfs/FILE.pdf --page 0 --blocks --deskew --out page.png
 """
 
 import argparse
@@ -79,6 +80,7 @@ def main() -> int:
     parser.add_argument('--char-margin', type=float, default=None, help='defaults to pdfminer LAParams default')
     parser.add_argument('--line-margin', type=float, default=None, help='defaults to pdfminer LAParams default')
     parser.add_argument('--full-width-threshold', type=float, default=0.9)
+    parser.add_argument('--deskew', action='store_true', help='enable laytext skew correction (Params.deskew)')
     args = parser.parse_args()
 
     la_params = pdfminer.layout.LAParams(all_texts=True, boxes_flow=0.5)
@@ -92,6 +94,7 @@ def main() -> int:
         column_gap_min=args.column_gap_min,
         row_gap_min=args.row_gap_min,
         full_width_threshold=args.full_width_threshold,
+        deskew=args.deskew,
     )
 
     pdf = pdfium.PdfDocument(str(args.pdf))
