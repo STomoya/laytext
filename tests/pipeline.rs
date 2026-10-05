@@ -211,3 +211,65 @@ fn skewed_block_merge_matches_pdfminer_when_deskew_is_off() {
 
     assert_eq!(page.blocks.len(), 1);
 }
+
+/// Two stacked bands of side-by-side blocks whose column gutters don't
+/// line up (so no page-wide column cut exists), rotated 4°: the right side
+/// rises enough that the raw y-projections leave no row gap clearing the
+/// derived `row_gap_min`, so without shear correction XyCut never splits
+/// the bands and orders blocks by raw top edge (right before left).
+fn skewed_staggered_bands() -> Vec<Char> {
+    let slope = 4.0_f64.to_radians().tan();
+    let run = move |baseline: f64, x_start: f64, count: usize| {
+        (0..count).map(move |i| {
+            let x0 = x_start + (i as f64) * 7.0;
+            let y0 = baseline + (x0 + 3.0) * slope;
+            Char {
+                bbox: rect(x0, y0, x0 + 6.0, y0 + 10.0),
+                text: 'x',
+                font: None,
+            }
+        })
+    };
+    let mut chars = Vec::new();
+    for (baselines, blocks) in [
+        ([560.0, 545.0], [(0.0, 18), (154.0, 18)]),
+        ([515.0, 500.0], [(0.0, 15), (136.0, 20)]),
+    ] {
+        for (x_start, count) in blocks {
+            for b in baselines {
+                chars.extend(run(b, x_start, count));
+            }
+        }
+    }
+    chars
+}
+
+#[test]
+fn xycut_deskew_segments_on_shear_corrected_bboxes() {
+    let params = Params {
+        deskew: true,
+        word_margin: 0.0,
+        segmentation: Strategy::XyCut,
+        ..Params::default()
+    };
+    let lines = group_lines(skewed_staggered_bands(), &params);
+    assert_eq!(lines.len(), 8);
+    let mut raw_bboxes: Vec<Rect> = lines.iter().map(|l| l.bbox).collect();
+
+    let page = assemble(lines, &params, 300.0, 600.0);
+
+    let x0s: Vec<f64> = page.blocks.iter().map(|b| b.bbox.x0).collect();
+    assert_eq!(x0s, vec![0.0, 154.0, 0.0, 136.0]);
+    let mut out_bboxes: Vec<Rect> = page
+        .blocks
+        .iter()
+        .flat_map(|b| b.lines.iter().map(|l| l.bbox))
+        .collect();
+    let key = |a: &Rect, b: &Rect| a.x0.total_cmp(&b.x0).then(b.y1.total_cmp(&a.y1));
+    out_bboxes.sort_by(key);
+    raw_bboxes.sort_by(key);
+    assert_eq!(
+        out_bboxes, raw_bboxes,
+        "output geometry must stay unsheared"
+    );
+}
