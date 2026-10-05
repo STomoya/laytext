@@ -74,6 +74,10 @@ pub struct Params {
     pub detect_vertical: bool,
     pub segmentation: Strategy,
     pub boxes_flow: f64,
+    /// Opt-in: shear-correct char bboxes by the estimated page skew before
+    /// line grouping. Off by default because `estimate_page_skew` reports
+    /// false skew on many flat pages, which breaks pdfminer parity.
+    pub deskew: bool,
 }
 
 impl Default for Params {
@@ -89,6 +93,7 @@ impl Default for Params {
             detect_vertical: false,
             segmentation: Strategy::Pdfminer,
             boxes_flow: 0.5,
+            deskew: false,
         }
     }
 }
@@ -100,6 +105,7 @@ impl Params {
         char_margin=2.0, line_overlap=0.5, line_margin=0.5, word_margin=0.1,
         column_gap_min=None, row_gap_min=None, full_width_threshold=0.9,
         detect_vertical=false, segmentation=Strategy::Pdfminer, boxes_flow=0.5,
+        deskew=false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn py_new(
@@ -113,6 +119,7 @@ impl Params {
         detect_vertical: bool,
         segmentation: Strategy,
         boxes_flow: f64,
+        deskew: bool,
     ) -> Self {
         Params {
             char_margin,
@@ -125,6 +132,7 @@ impl Params {
             detect_vertical,
             segmentation,
             boxes_flow,
+            deskew,
         }
     }
 }
@@ -146,6 +154,7 @@ mod tests {
         assert!(!p.detect_vertical);
         assert_eq!(p.segmentation, Strategy::Pdfminer);
         assert_eq!(p.boxes_flow, 0.5);
+        assert!(!p.deskew);
     }
 
     #[test]
@@ -161,6 +170,7 @@ mod tests {
             true,
             Strategy::XyCut,
             0.25,
+            true,
         );
         assert_eq!(p.char_margin, 1.0);
         assert_eq!(p.line_overlap, 2.0);
@@ -172,6 +182,7 @@ mod tests {
         assert!(p.detect_vertical);
         assert_eq!(p.segmentation, Strategy::XyCut);
         assert_eq!(p.boxes_flow, 0.25);
+        assert!(p.deskew);
     }
 
     #[test]

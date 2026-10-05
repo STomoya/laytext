@@ -121,13 +121,18 @@ fn valign_ratio(a: &Rect, b: &Rect, params: &Params) -> f64 {
 }
 
 /// Groups a page's chars into lines. Port of pdfminer's
-/// `LTLayoutContainer.group_objects`, with a skew-correction pre-pass
+/// `LTLayoutContainer.group_objects`, with an opt-in (`Params.deskew`)
+/// skew-correction pre-pass
 /// (`estimate_page_skew`/`shear_correct_bboxes`) that only affects grouping
 /// decisions, never the output geometry. Input must already be in roughly
 /// reading order (pdfminer relies on PDF content-stream order); this
 /// function does not sort.
 pub fn group_lines(chars: Vec<Char>, params: &Params) -> Vec<Line> {
-    let angle = estimate_page_skew(&chars);
+    let angle = if params.deskew {
+        estimate_page_skew(&chars)
+    } else {
+        0.0
+    };
     let grouping_bboxes: Vec<Rect> = if angle.abs() > SKEW_NOISE_FLOOR_DEGREES {
         shear_correct_bboxes(&chars, angle)
     } else {

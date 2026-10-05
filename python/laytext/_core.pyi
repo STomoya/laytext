@@ -74,6 +74,7 @@ class Params:
     # and accepted/returned here as a plain str across the FFI boundary.
     segmentation: str
     boxes_flow: float
+    deskew: bool
     def __init__(
         self,
         char_margin: float = 2.0,
@@ -84,8 +85,9 @@ class Params:
         row_gap_min: float | None = None,
         full_width_threshold: float = 0.9,
         detect_vertical: bool = False,
-        segmentation: str = "pdfminer",
+        segmentation: str = 'pdfminer',
         boxes_flow: float = 0.5,
+        deskew: bool = False,
     ) -> None: ...
 
 def group_lines(chars: list[Char], params: Params) -> list[Line]: ...
