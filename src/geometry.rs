@@ -23,6 +23,34 @@ impl Rect {
 }
 
 impl Rect {
+    /// Maps a bbox from unrotated PDF user space on a `width` x `height`
+    /// page into the upright frame of that page displayed with
+    /// `/Rotate rotation` (clockwise degrees), the same transform
+    /// pdfminer's CTM applies. Any other `rotation` is the identity.
+    pub fn rotated(&self, rotation: i32, width: f64, height: f64) -> Rect {
+        match rotation {
+            90 => Rect {
+                x0: self.y0,
+                y0: width - self.x1,
+                x1: self.y1,
+                y1: width - self.x0,
+            },
+            180 => Rect {
+                x0: width - self.x1,
+                y0: height - self.y1,
+                x1: width - self.x0,
+                y1: height - self.y0,
+            },
+            270 => Rect {
+                x0: height - self.y1,
+                y0: self.x0,
+                x1: height - self.y0,
+                y1: self.x1,
+            },
+            _ => *self,
+        }
+    }
+
     pub fn width(&self) -> f64 {
         self.x1 - self.x0
     }

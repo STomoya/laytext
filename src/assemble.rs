@@ -1,5 +1,6 @@
 use crate::blocks::group_blocks;
-use crate::geometry::union_all;
+use crate::geometry::{Rect, union_all};
+use crate::lines::group_lines;
 use crate::params::{Params, Strategy};
 use crate::reading_order::order_blocks;
 use crate::segmentation::{Region, segment};
@@ -103,4 +104,62 @@ pub fn assemble(lines: Vec<Line>, params: &Params, width: f64, height: f64) -> P
         height,
         blocks,
     }
+}
+
+fn map_page_bboxes(page: Page, f: impl Fn(Rect) -> Rect, width: f64, height: f64) -> Page {
+    let blocks = page
+        .blocks
+        .into_iter()
+        .map(|b| Block {
+            bbox: f(b.bbox),
+            lines: b
+                .lines
+                .into_iter()
+                .map(|l| Line {
+                    bbox: f(l.bbox),
+                    chars: l
+                        .chars
+                        .into_iter()
+                        .map(|c| Char {
+                            bbox: f(c.bbox),
+                            ..c
+                        })
+                        .collect(),
+                    ..l
+                })
+                .collect(),
+            ..b
+        })
+        .collect();
+    Page {
+        width,
+        height,
+        blocks,
+    }
+}
+
+/// Full per-page pipeline. `chars`, `width` and `height` are in unrotated
+/// PDF user space; `rotation` is the page's `/Rotate` (0/90/180/270). The
+/// pipeline runs on the upright page, and every output bbox is mapped back
+/// into the caller's unrotated space.
+pub fn analyze(chars: Vec<Char>, width: f64, height: f64, rotation: i32, params: &Params) -> Page {
+    let (up_w, up_h) = if rotation % 180 == 90 {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let chars = chars
+        .into_iter()
+        .map(|c| Char {
+            bbox: c.bbox.rotated(rotation, width, height),
+            ..c
+        })
+        .collect();
+    let page = assemble(group_lines(chars, params), params, up_w, up_h);
+    map_page_bboxes(
+        page,
+        |r| r.rotated(360 - rotation, up_w, up_h),
+        width,
+        height,
+    )
 }

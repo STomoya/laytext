@@ -1,10 +1,10 @@
-use _core::assemble::{assemble, assemble_region};
+use _core::assemble::{analyze, assemble, assemble_region};
 use _core::blocks::group_blocks;
 use _core::geometry::Rect;
 use _core::lines::group_lines;
 use _core::params::{Params, Strategy};
 use _core::segmentation::segment;
-use _core::types::{Char, Line};
+use _core::types::{Block, Char, Line, Page};
 
 fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Rect {
     Rect { x0, y0, x1, y1 }
@@ -272,4 +272,95 @@ fn xycut_deskew_segments_on_shear_corrected_bboxes() {
         out_bboxes, raw_bboxes,
         "output geometry must stay unsheared"
     );
+}
+
+// Inverse of the `/Rotate` display transform: maps a bbox from the upright
+// frame of a `dw` x `dh` displayed page back into unrotated PDF user space.
+fn to_user_space(r: Rect, rotation: i32, dw: f64, dh: f64) -> Rect {
+    match rotation {
+        90 => rect(dh - r.y1, r.x0, dh - r.y0, r.x1),
+        180 => rect(dw - r.x1, dh - r.y1, dw - r.x0, dh - r.y0),
+        270 => rect(r.y0, dw - r.x1, r.y1, dw - r.x0),
+        _ => r,
+    }
+}
+
+fn page_to_user_space(page: Page, rotation: i32) -> Page {
+    let (dw, dh) = (page.width, page.height);
+    let map = |r: Rect| to_user_space(r, rotation, dw, dh);
+    let (width, height) = if rotation % 180 == 90 {
+        (dh, dw)
+    } else {
+        (dw, dh)
+    };
+    Page {
+        width,
+        height,
+        blocks: page
+            .blocks
+            .into_iter()
+            .map(|b| Block {
+                bbox: map(b.bbox),
+                lines: b
+                    .lines
+                    .into_iter()
+                    .map(|l| Line {
+                        bbox: map(l.bbox),
+                        chars: l
+                            .chars
+                            .into_iter()
+                            .map(|c| Char {
+                                bbox: map(c.bbox),
+                                ..c
+                            })
+                            .collect(),
+                        ..l
+                    })
+                    .collect(),
+                ..b
+            })
+            .collect(),
+    }
+}
+
+fn word(x: f64, y: f64, text: &str) -> Vec<Char> {
+    text.chars()
+        .enumerate()
+        .map(|(i, t)| Char {
+            bbox: rect(x + 6.0 * i as f64, y, x + 6.0 * (i + 1) as f64, y + 10.0),
+            text: t,
+            font: None,
+        })
+        .collect()
+}
+
+#[test]
+fn rotated_page_groups_the_same_as_its_upright_version() {
+    let params = Params::default();
+    let (dw, dh) = (300.0, 200.0);
+    let upright_chars: Vec<Char> = [
+        word(10.0, 170.0, "two"),
+        word(10.0, 158.0, "line"),
+        word(200.0, 170.0, "col"),
+        word(10.0, 20.0, "foot"),
+    ]
+    .concat();
+    let upright = analyze(upright_chars.clone(), dw, dh, 0, &params);
+    assert_eq!(upright.blocks.len(), 3);
+
+    for rotation in [90, 180, 270] {
+        let (w, h) = if rotation == 180 { (dw, dh) } else { (dh, dw) };
+        let chars = upright_chars
+            .iter()
+            .map(|c| Char {
+                bbox: to_user_space(c.bbox, rotation, dw, dh),
+                ..c.clone()
+            })
+            .collect();
+        assert_eq!(
+            analyze(chars, w, h, rotation, &params),
+            page_to_user_space(upright.clone(), rotation),
+            "rotation {rotation}"
+        );
+    }
 }

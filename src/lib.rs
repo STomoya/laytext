@@ -10,12 +10,12 @@ pub mod types;
 
 use pyo3::prelude::*;
 
-use assemble::assemble as assemble_impl;
+use assemble::analyze;
 use geometry::Rect;
 use lines::group_lines as group_lines_impl;
 use params::Params;
 use rayon::prelude::*;
-use types::{Block, Char, FontInfo, Line, Page, PageInput};
+use types::{Block, Char, FontInfo, Line, Page, PageInput, normalize_rotation};
 
 #[pyfunction]
 #[pyo3(name = "group_lines")]
@@ -45,18 +45,17 @@ fn group_lines_document_py(
 }
 
 #[pyfunction]
-#[pyo3(name = "analyze_page")]
+#[pyo3(name = "analyze_page", signature = (chars, width, height, params, rotation=0))]
 fn analyze_page_py(
     py: Python<'_>,
     chars: Vec<Char>,
     width: f64,
     height: f64,
     params: Params,
-) -> Page {
-    py.detach(|| {
-        let lines = group_lines_impl(chars, &params);
-        assemble_impl(lines, &params, width, height)
-    })
+    rotation: i32,
+) -> PyResult<Page> {
+    let rotation = normalize_rotation(rotation)?;
+    Ok(py.detach(|| analyze(chars, width, height, rotation, &params)))
 }
 
 #[pyfunction]
@@ -65,11 +64,7 @@ fn analyze_document_py(py: Python<'_>, pages: Vec<PageInput>, params: Params) ->
     py.detach(|| {
         pages
             .into_par_iter()
-            .map(|page| {
-                let (width, height) = (page.width, page.height);
-                let lines = group_lines_impl(page.chars, &params);
-                assemble_impl(lines, &params, width, height)
-            })
+            .map(|p| analyze(p.chars, p.width, p.height, p.rotation, &params))
             .collect()
     })
 }
@@ -80,7 +75,7 @@ mod tests {
         analyze_document_py, analyze_page_py, estimate_page_skew_py, group_lines_document_py,
         group_lines_py,
     };
-    use crate::assemble::assemble;
+    use crate::assemble::{analyze, assemble};
     use crate::geometry::Rect;
     use crate::lines::group_lines;
     use crate::params::Params;
@@ -155,7 +150,10 @@ mod tests {
             };
             let lines = group_lines(chars.clone(), &params);
             let expected = assemble(lines, &params, 100.0, 200.0);
-            assert_eq!(analyze_page_py(py, chars, 100.0, 200.0, params), expected);
+            assert_eq!(
+                analyze_page_py(py, chars, 100.0, 200.0, params, 0).unwrap(),
+                expected
+            );
         });
     }
 
@@ -167,7 +165,32 @@ mod tests {
             let chars = vec![a_char()];
             let lines = group_lines(chars.clone(), &params);
             let expected = assemble(lines, &params, 100.0, 200.0);
-            assert_eq!(analyze_page_py(py, chars, 100.0, 200.0, params), expected);
+            assert_eq!(
+                analyze_page_py(py, chars, 100.0, 200.0, params, 0).unwrap(),
+                expected
+            );
+        });
+    }
+
+    #[test]
+    fn analyze_page_py_delegates_rotation_to_analyze() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let params = Params::default();
+            let chars = vec![a_char()];
+            let expected = analyze(chars.clone(), 100.0, 200.0, 90, &params);
+            assert_eq!(
+                analyze_page_py(py, chars, 100.0, 200.0, params, -270).unwrap(),
+                expected
+            );
+        });
+    }
+
+    #[test]
+    fn analyze_page_py_rejects_non_right_angle_rotation() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            assert!(analyze_page_py(py, vec![], 100.0, 200.0, Params::default(), 45).is_err());
         });
     }
 
@@ -185,17 +208,22 @@ mod tests {
                     width: 100.0,
                     height: 200.0,
                     chars: vec![a_char()],
+                    rotation: 90,
                 },
                 PageInput {
                     width: 100.0,
                     height: 200.0,
                     chars: vec![],
+                    rotation: 0,
                 },
             ];
             let expected: Vec<_> = pages
                 .iter()
                 .cloned()
-                .map(|p| analyze_page_py(py, p.chars, p.width, p.height, params.clone()))
+                .map(|p| {
+                    analyze_page_py(py, p.chars, p.width, p.height, params.clone(), p.rotation)
+                        .unwrap()
+                })
                 .collect();
 
             assert_eq!(analyze_document_py(py, pages, params), expected);

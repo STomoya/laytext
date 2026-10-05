@@ -173,6 +173,28 @@ def test_page_input_round_trips_chars_and_dimensions():
     assert page_input.height == 200.0
 
 
+def test_page_input_rotation_defaults_to_zero_and_normalizes():
+    assert PageInput([], 100.0, 200.0).rotation == 0
+    assert PageInput([], 100.0, 200.0, -90).rotation == 270
+
+
+def test_page_input_rejects_non_right_angle_rotation():
+    with pytest.raises(ValueError):
+        PageInput([], 100.0, 200.0, 45)
+
+
+def test_analyze_page_accepts_rotation_keyword():
+    a = Char(Rect(0.0, 0.0, 6.0, 10.0), 'a')
+    page = analyze_page([a], 100.0, 200.0, Params(), rotation=90)
+    assert (page.width, page.height) == (100.0, 200.0)
+    assert len(page.blocks) == 1
+
+
+def test_analyze_page_rejects_non_right_angle_rotation():
+    with pytest.raises(ValueError):
+        analyze_page([], 100.0, 200.0, Params(), rotation=45)
+
+
 def test_analyze_document_empty_input_returns_empty_list():
     assert analyze_document([], Params(column_gap_min=10.0, row_gap_min=10.0)) == []
 

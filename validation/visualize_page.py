@@ -99,7 +99,7 @@ def main() -> int:
 
     pdf = pdfium.PdfDocument(str(args.pdf))
     page = pdf[args.page]
-    page_width, page_height = page.get_size()
+    _, page_height = page.get_size()
     scale = args.dpi / 72
 
     image = page.render(scale=scale).to_pil().convert('RGB')
@@ -118,16 +118,18 @@ def main() -> int:
             draw_box(draw, to_px(line.bbox), PDFMINER_COLOR)
             pm_line_count += 1
 
-    chars = cp.extract_page_chars(page)
-    lt_page = laytext.analyze_page(chars, page_width, page_height, params)
+    inp = cp.page_input(page)
+    lt_page = laytext.analyze_page(inp.chars, inp.width, inp.height, params, rotation=inp.rotation)
+
+    def lt_to_px(r: laytext.Rect) -> tuple[float, float, float, float]:
+        return to_px(cp.to_display_bbox((r.x0, r.y0, r.x1, r.y1), inp.rotation, inp.width, inp.height))
+
     lt_line_count = 0
     for block in lt_page.blocks:
         if args.blocks:
-            draw_box(
-                draw, to_px((block.bbox.x0, block.bbox.y0, block.bbox.x1, block.bbox.y1)), LAYTEXT_COLOR, dashed=True
-            )
+            draw_box(draw, lt_to_px(block.bbox), LAYTEXT_COLOR, dashed=True)
         for line in block.lines:
-            draw_box(draw, to_px((line.bbox.x0, line.bbox.y0, line.bbox.x1, line.bbox.y1)), LAYTEXT_COLOR)
+            draw_box(draw, lt_to_px(line.bbox), LAYTEXT_COLOR)
             lt_line_count += 1
 
     draw_legend(draw, args.pdf.name, args.page, pm_line_count, lt_line_count)

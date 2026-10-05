@@ -127,23 +127,37 @@ pub struct PageInput {
     pub width: f64,
     pub height: f64,
     pub chars: Vec<Char>,
+    pub rotation: i32,
 }
 
 #[pymethods]
 impl PageInput {
     #[new]
-    fn py_new(chars: Vec<Char>, width: f64, height: f64) -> Self {
-        PageInput {
+    #[pyo3(signature = (chars, width, height, rotation=0))]
+    fn py_new(chars: Vec<Char>, width: f64, height: f64, rotation: i32) -> PyResult<Self> {
+        Ok(PageInput {
             width,
             height,
             chars,
-        }
+            rotation: normalize_rotation(rotation)?,
+        })
     }
+}
+
+/// Wraps a PDF `/Rotate` value (any multiple of 90, possibly negative or
+/// >= 360) into 0/90/180/270.
+pub fn normalize_rotation(rotation: i32) -> PyResult<i32> {
+    if rotation % 90 != 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "rotation must be a multiple of 90, got {rotation}"
+        )));
+    }
+    Ok(rotation.rem_euclid(360))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Block, Char, FontInfo, Line, Page, PageInput};
+    use super::{Block, Char, FontInfo, Line, Page, PageInput, normalize_rotation};
     use crate::geometry::Rect;
 
     fn rect() -> Rect {
@@ -344,17 +358,41 @@ mod tests {
     #[test]
     fn page_input_py_new_assigns_chars_from_arguments() {
         let c = Char::py_new(rect(), 'a', None);
-        let p = PageInput::py_new(vec![c.clone()], 8.5, 11.0);
+        let p = PageInput::py_new(vec![c.clone()], 8.5, 11.0, 90).unwrap();
         assert_eq!(p.chars, vec![c]);
         assert_eq!(p.width, 8.5);
         assert_eq!(p.height, 11.0);
+        assert_eq!(p.rotation, 90);
+    }
+
+    #[test]
+    fn page_input_py_new_normalizes_rotation() {
+        let p = PageInput::py_new(vec![], 8.5, 11.0, -90).unwrap();
+        assert_eq!(p.rotation, 270);
+    }
+
+    #[test]
+    fn page_input_py_new_rejects_non_right_angle_rotation() {
+        assert!(PageInput::py_new(vec![], 8.5, 11.0, 45).is_err());
+    }
+
+    #[test]
+    fn normalize_rotation_wraps_right_angles_into_0_to_270() {
+        assert_eq!(normalize_rotation(450).unwrap(), 90);
+        assert_eq!(normalize_rotation(-180).unwrap(), 180);
+        assert_eq!(normalize_rotation(0).unwrap(), 0);
+    }
+
+    #[test]
+    fn normalize_rotation_rejects_non_right_angles() {
+        assert!(normalize_rotation(45).is_err());
     }
 
     #[test]
     fn page_input_extracts_from_python_object() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            let p = PageInput::py_new(vec![Char::py_new(rect(), 'a', None)], 8.5, 11.0);
+            let p = PageInput::py_new(vec![Char::py_new(rect(), 'a', None)], 8.5, 11.0, 0).unwrap();
             let obj = pyo3::Py::new(py, p.clone()).unwrap();
             let extracted: PageInput = obj.extract(py).unwrap();
             assert_eq!(extracted, p);
