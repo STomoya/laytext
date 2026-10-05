@@ -24,6 +24,12 @@ fn group_lines_py(chars: Vec<Char>, params: Params) -> Vec<Line> {
 }
 
 #[pyfunction]
+#[pyo3(name = "estimate_page_skew")]
+fn estimate_page_skew_py(chars: Vec<Char>) -> f64 {
+    skew::estimate_page_skew(&chars)
+}
+
+#[pyfunction]
 #[pyo3(name = "group_lines_document")]
 fn group_lines_document_py(
     py: Python<'_>,
@@ -70,7 +76,10 @@ fn analyze_document_py(py: Python<'_>, pages: Vec<PageInput>, params: Params) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{analyze_document_py, analyze_page_py, group_lines_document_py, group_lines_py};
+    use super::{
+        analyze_document_py, analyze_page_py, estimate_page_skew_py, group_lines_document_py,
+        group_lines_py,
+    };
     use crate::assemble::assemble;
     use crate::geometry::Rect;
     use crate::lines::group_lines;
@@ -88,6 +97,15 @@ mod tests {
             text: 'a',
             font: None,
         }
+    }
+
+    #[test]
+    fn estimate_page_skew_py_delegates_to_skew_estimate_page_skew() {
+        let chars = vec![a_char()];
+        assert_eq!(
+            estimate_page_skew_py(chars.clone()),
+            crate::skew::estimate_page_skew(&chars)
+        );
     }
 
     #[test]
@@ -228,6 +246,8 @@ mod _core {
     use crate::analyze_document_py;
     #[pymodule_export]
     use crate::analyze_page_py;
+    #[pymodule_export]
+    use crate::estimate_page_skew_py;
     #[pymodule_export]
     use crate::group_lines_document_py;
     #[pymodule_export]

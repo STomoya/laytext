@@ -250,6 +250,28 @@ fn multiple_lines_preserve_order_across_a_run_of_chars() {
     assert_eq!(lines[1].chars, vec![b, c]);
 }
 
+/// One line of `n` dense 6x10 chars at a 7pt pitch starting at `x_start`,
+/// tilted by `angle_deg` (each char's y0 rises by `x_center * tan(angle)`).
+fn tilted_run(baseline: f64, x_start: f64, n: usize, angle_deg: f64) -> Vec<Char> {
+    let slope = angle_deg.to_radians().tan();
+    (0..n)
+        .map(|i| {
+            let x0 = x_start + (i as f64) * 7.0;
+            let y0 = baseline + (x0 + 3.0) * slope;
+            ch(x0, y0, x0 + 6.0, y0 + 10.0)
+        })
+        .collect()
+}
+
+/// `lines` dense 40-char lines at a 12pt (1.2x char height) baseline
+/// pitch, in reading order — tight enough that adjacent lines' y ranges
+/// interleave once tilted.
+fn dense_page(lines: usize, angle_deg: f64) -> Vec<Char> {
+    (0..lines)
+        .flat_map(|l| tilted_run(500.0 - (l as f64) * 12.0, 0.0, 40, angle_deg))
+        .collect()
+}
+
 #[test]
 fn estimate_page_skew_returns_zero_for_empty_input() {
     assert_eq!(estimate_page_skew(&[]), 0.0);
@@ -257,170 +279,132 @@ fn estimate_page_skew_returns_zero_for_empty_input() {
 
 #[test]
 fn estimate_page_skew_returns_zero_when_too_little_text_to_estimate_confidently() {
-    // A single 4-char band (one band, under the 3-band minimum for a
-    // confident page-level estimate) must not produce a guess from noise.
-    let chars = vec![
-        ch(0.0, 100.0, 6.0, 110.0),
-        ch(20.0, 100.0, 26.0, 110.0),
-        ch(40.0, 100.0, 46.0, 110.0),
-        ch(60.0, 100.0, 66.0, 110.0),
-    ];
-    assert_eq!(estimate_page_skew(&chars), 0.0);
+    // Two runs, under the 3-run minimum for a confident page estimate.
+    assert_eq!(estimate_page_skew(&dense_page(2, 2.0)), 0.0);
 }
 
 #[test]
 fn estimate_page_skew_is_zero_for_axis_aligned_text() {
-    let mut chars = Vec::new();
-    for band in 0..3 {
-        let y0 = 300.0 - (band as f64) * 100.0;
-        for i in 0..4 {
-            let x0 = (i as f64) * 20.0;
-            chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
-        }
-    }
-    assert_eq!(estimate_page_skew(&chars), 0.0);
+    assert!(estimate_page_skew(&dense_page(5, 0.0)).abs() < 1e-9);
 }
 
 #[test]
-fn estimate_page_skew_robust_to_a_single_outlier_band() {
-    let mut chars = Vec::new();
-    // 5 flat (0 degree) bands, well separated in y.
-    for band in 0..5 {
-        let y0 = 1000.0 - (band as f64) * 100.0;
-        for i in 0..4 {
-            let x0 = (i as f64) * 20.0;
-            chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
-        }
+fn estimate_page_skew_measures_a_dense_tilted_page() {
+    assert!((estimate_page_skew(&dense_page(5, 2.0)) - 2.0).abs() < 1e-6);
+    assert!((estimate_page_skew(&dense_page(5, -1.0)) + 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn estimate_page_skew_robust_to_a_single_outlier_run() {
+    let mut chars = dense_page(5, 0.0);
+    chars.extend(tilted_run(0.0, 0.0, 40, 10.0));
+    assert!(estimate_page_skew(&chars).abs() < 1e-9);
+}
+
+#[test]
+fn estimate_page_skew_ignores_short_runs() {
+    // Short runs (table cells, numbers) are dominated by per-glyph box
+    // differences, not page tilt: on the real corpus, rows of tilted-
+    // looking 8-char cells drove a flat page's estimate to ~2deg. Only
+    // runs spanning at least 10 char heights count.
+    let mut chars = dense_page(3, 0.0);
+    for cell in 0..5 {
+        chars.extend(tilted_run(200.0 - (cell as f64) * 30.0, 0.0, 8, 2.0));
     }
-    // One extreme-angle outlier band (mirrors the spike's observed
-    // formula/watermark outliers), well separated in y from every flat
-    // band. Angle chosen so per-step y-drift (~7.3) fits within the
-    // bucketing window (15.0), allowing all 4 chars to correctly merge
-    // into one band before fitting.
-    let outlier_angle_rad = 20.0_f64.to_radians();
-    let outlier_baseline = -500.0;
-    for i in 0..4 {
-        let x0 = (i as f64) * 20.0;
-        let drift = x0 * outlier_angle_rad.tan();
-        let y0 = outlier_baseline - drift;
-        chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
-    }
-    // Median of [0, 0, 0, 0, 0, ~20] = 0.0 exactly: the outlier band
-    // is correctly fit and included, but the median discipline (not mean)
-    // keeps the page estimate at 0.0.
+    assert!(estimate_page_skew(&chars).abs() < 1e-9);
+}
+
+#[test]
+fn estimate_page_skew_ignores_steep_runs() {
+    // Beyond 15deg a run is rotated text (axis labels, stamps), not scan
+    // skew; a page of only such runs has no estimate.
+    assert_eq!(estimate_page_skew(&dense_page(4, 20.0)), 0.0);
+}
+
+#[test]
+fn estimate_page_skew_ignores_vertical_text() {
+    // Chars stacked top-to-bottom never form a left-to-right run.
+    let chars: Vec<Char> = (0..4)
+        .flat_map(|col| {
+            (0..40).map(move |i| {
+                let x0 = 500.0 - (col as f64) * 14.0;
+                let y0 = 500.0 - (i as f64) * 11.0;
+                ch(x0, y0, x0 + 10.0, y0 + 10.0)
+            })
+        })
+        .collect();
     assert_eq!(estimate_page_skew(&chars), 0.0);
 }
 
 #[test]
 fn estimate_page_skew_nan_bbox_does_not_panic() {
-    let chars = vec![
-        ch(0.0, f64::NAN, 6.0, 10.0),
-        ch(20.0, 100.0, 26.0, 110.0),
-        ch(40.0, 100.0, 46.0, 110.0),
-        ch(60.0, 100.0, 66.0, 110.0),
-    ];
+    let mut chars = dense_page(5, 2.0);
+    chars[3].bbox.y0 = f64::NAN;
     let _ = estimate_page_skew(&chars); // must not panic
+}
+
+/// Three 2deg-tilted lines, each two 20-char runs separated by a wide
+/// (~260pt) gap. Within a run the per-char drift is tiny, but across the
+/// gap it is ~9.3pt, which fails halign's voverlap check (> height(10) *
+/// (1 - line_overlap(0.5)) = 5) without correction and splits every line
+/// in two. A generous char_margin keeps the horizontal-gap check passing
+/// either way, and word_margin=0 avoids synthetic spaces across the gap.
+fn gapped_tilted_lines() -> (Params, Vec<Vec<Char>>) {
+    let params = Params {
+        char_margin: 50.0,
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    let lines = [500.0, 470.0, 440.0]
+        .into_iter()
+        .map(|baseline| {
+            let mut line = tilted_run(baseline, 0.0, 20, 2.0);
+            line.extend(tilted_run(baseline, 400.0, 20, 2.0));
+            line
+        })
+        .collect();
+    (params, lines)
 }
 
 #[test]
 fn skewed_lines_group_correctly_and_output_geometry_is_never_sheared() {
-    // Three page-level "lines" (bands), each with a small, consistent
-    // 1.5deg skew (drift = pitch * tan(1.5deg) per char step, ~5.24pt)
-    // large enough that WITHOUT correction halign's voverlap check fails
-    // between adjacent chars (drift > height(10) * (1 - line_overlap(0.5))
-    // = 5), fragmenting each band into 4 separate single-char lines. A
-    // generous char_margin keeps the horizontal-gap check passing
-    // regardless of correction, isolating the vertical-drift effect under
-    // test. After correction each band must merge into one Line, and the
-    // output chars/bbox must exactly match the original, uncorrected
-    // input coordinates (the shear must never leak into output geometry).
+    let (params, expected) = gapped_tilted_lines();
     let params = Params {
         deskew: true,
-        char_margin: 25.0,
-        // Isolates the vertical-drift effect under test: at pitch=200 with
-        // 10pt-wide chars, the real horizontal gap (190pt) exceeds the
-        // default word_margin threshold and would otherwise insert
-        // synthetic space chars, unrelated to skew correction.
-        word_margin: 0.0,
-        ..Params::default()
+        ..params
     };
-    let pitch = 200.0;
-    let drift_per_step = pitch * 1.5_f64.to_radians().tan();
-
-    let band = |baseline_y: f64| -> Vec<Char> {
-        (0..4)
-            .map(|i| {
-                let x0 = (i as f64) * pitch;
-                let y0 = baseline_y - (i as f64) * drift_per_step;
-                ch(x0, y0, x0 + 10.0, y0 + 10.0)
-            })
-            .collect()
-    };
-
-    let band0 = band(200.0);
-    let band1 = band(100.0);
-    let band2 = band(0.0);
-    let chars: Vec<Char> = band0
-        .iter()
-        .chain(band1.iter())
-        .chain(band2.iter())
-        .cloned()
-        .collect();
+    let chars: Vec<Char> = expected.concat();
 
     let lines = group_lines(chars, &params);
 
     assert_eq!(lines.len(), 3);
-    for (line, expected_band) in lines.iter().zip([&band0, &band1, &band2]) {
-        assert_eq!(&line.chars, expected_band);
-        assert_eq!(line.bbox, union_all(expected_band.iter().map(|c| c.bbox)));
-    }
-}
-
-#[test]
-fn zero_skew_page_produces_unchanged_grouping_output() {
-    // Perfectly flat text (no skew): the estimate is 0.0, well under the
-    // noise floor, so group_lines must behave exactly as it did before
-    // this feature existed - the primary no-regression guarantee.
-    let params = Params::default();
-    let mut chars = Vec::new();
-    for band in 0..3 {
-        let y0 = 300.0 - (band as f64) * 100.0;
-        for i in 0..4 {
-            let x0 = (i as f64) * 6.5;
-            chars.push(ch(x0, y0, x0 + 6.0, y0 + 10.0));
-        }
-    }
-    let lines = group_lines(chars.clone(), &params);
-    assert_eq!(lines.len(), 3);
-    for (line, band_chars) in lines.iter().zip(chars.chunks(4)) {
-        assert_eq!(line.chars, band_chars.to_vec());
+    for (line, expected_line) in lines.iter().zip(&expected) {
+        assert_eq!(&line.chars, expected_line);
+        assert_eq!(line.bbox, union_all(expected_line.iter().map(|c| c.bbox)));
     }
 }
 
 #[test]
 fn skew_correction_is_off_by_default() {
-    // Same 1.5deg fixture as the opt-in test above. With default Params
-    // the estimate must not be applied, so grouping matches pdfminer:
-    // halign's voverlap check fails between adjacent chars and every band
-    // fragments into single-char lines.
+    let (params, expected) = gapped_tilted_lines();
+    let chars: Vec<Char> = expected.concat();
+
+    assert!((estimate_page_skew(&chars) - 2.0).abs() < 1e-6);
+    assert_eq!(group_lines(chars, &params).len(), 6);
+}
+
+#[test]
+fn zero_skew_page_produces_unchanged_grouping_output() {
+    // Perfectly flat text with deskew on: the estimate is 0.0, under the
+    // noise floor, so group_lines must behave exactly as with deskew off.
     let params = Params {
-        char_margin: 25.0,
-        word_margin: 0.0,
+        deskew: true,
         ..Params::default()
     };
-    let pitch = 200.0;
-    let drift_per_step = pitch * 1.5_f64.to_radians().tan();
-    let chars: Vec<Char> = [200.0, 100.0, 0.0]
-        .into_iter()
-        .flat_map(|baseline_y| {
-            (0..4).map(move |i| {
-                let x0 = (i as f64) * pitch;
-                let y0 = baseline_y - (i as f64) * drift_per_step;
-                ch(x0, y0, x0 + 10.0, y0 + 10.0)
-            })
-        })
-        .collect();
-
-    assert!(estimate_page_skew(&chars).abs() > 1.0);
-    assert_eq!(group_lines(chars, &params).len(), 12);
+    let chars = dense_page(3, 0.0);
+    let lines = group_lines(chars.clone(), &params);
+    assert_eq!(lines.len(), 3);
+    for (line, band_chars) in lines.iter().zip(chars.chunks(40)) {
+        assert_eq!(line.chars, band_chars.to_vec());
+    }
 }

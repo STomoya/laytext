@@ -13,6 +13,7 @@ from laytext._core import (
     Rect,
     analyze_document,
     analyze_page,
+    estimate_page_skew,
     group_lines,
     group_lines_document,
 )
@@ -39,6 +40,7 @@ __all__ = [
     '__version__',
     'analyze_document',
     'analyze_page',
+    'estimate_page_skew',
     'group_lines',
     'group_lines_document',
 ]
