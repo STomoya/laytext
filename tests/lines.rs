@@ -335,6 +335,7 @@ fn skewed_lines_group_correctly_and_output_geometry_is_never_sheared() {
     // output chars/bbox must exactly match the original, uncorrected
     // input coordinates (the shear must never leak into output geometry).
     let params = Params {
+        deskew: true,
         char_margin: 25.0,
         // Isolates the vertical-drift effect under test: at pitch=200 with
         // 10pt-wide chars, the real horizontal gap (190pt) exceeds the
@@ -394,4 +395,32 @@ fn zero_skew_page_produces_unchanged_grouping_output() {
     for (line, band_chars) in lines.iter().zip(chars.chunks(4)) {
         assert_eq!(line.chars, band_chars.to_vec());
     }
+}
+
+#[test]
+fn skew_correction_is_off_by_default() {
+    // Same 1.5deg fixture as the opt-in test above. With default Params
+    // the estimate must not be applied, so grouping matches pdfminer:
+    // halign's voverlap check fails between adjacent chars and every band
+    // fragments into single-char lines.
+    let params = Params {
+        char_margin: 25.0,
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    let pitch = 200.0;
+    let drift_per_step = pitch * 1.5_f64.to_radians().tan();
+    let chars: Vec<Char> = [200.0, 100.0, 0.0]
+        .into_iter()
+        .flat_map(|baseline_y| {
+            (0..4).map(move |i| {
+                let x0 = (i as f64) * pitch;
+                let y0 = baseline_y - (i as f64) * drift_per_step;
+                ch(x0, y0, x0 + 10.0, y0 + 10.0)
+            })
+        })
+        .collect();
+
+    assert!(estimate_page_skew(&chars).abs() > 1.0);
+    assert_eq!(group_lines(chars, &params).len(), 12);
 }

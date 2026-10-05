@@ -83,6 +83,11 @@ def test_params_accepts_xycut_strategy():
     assert p.boxes_flow == 0.25
 
 
+def test_params_deskew_defaults_off_and_accepts_kwarg():
+    assert Params().deskew is False
+    assert Params(deskew=True).deskew is True
+
+
 def test_strategy_variants_are_not_equal():
     assert Strategy.Pdfminer != Strategy.XyCut
 
