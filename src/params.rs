@@ -74,9 +74,10 @@ pub struct Params {
     pub detect_vertical: bool,
     pub segmentation: Strategy,
     pub boxes_flow: f64,
-    /// Opt-in: shear-correct char bboxes by the estimated page skew before
-    /// line grouping. Off by default because `estimate_page_skew` reports
-    /// false skew on many flat pages, which breaks pdfminer parity.
+    /// Opt-in: make line-grouping and block-merge decisions on bboxes
+    /// shear-corrected by the estimated page skew (output geometry is never
+    /// corrected). Off by default: on skewed pages it deliberately diverges
+    /// from pdfminer, the default path's reference.
     pub deskew: bool,
 }
 
