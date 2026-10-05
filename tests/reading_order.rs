@@ -10,6 +10,8 @@ fn block(bbox: Rect, upright: bool) -> Block {
     Block {
         bbox,
         reading_order: 0,
+        confidence: 1.0,
+        tabular: false,
         lines: vec![Line {
             bbox,
             upright,
@@ -18,6 +20,7 @@ fn block(bbox: Rect, upright: bool) -> Block {
                 text: 'x',
                 font: None,
             }],
+            confidence: 1.0,
         }],
     }
 }

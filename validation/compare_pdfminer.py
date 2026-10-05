@@ -417,6 +417,11 @@ def main() -> int:
         "'pypdfium2': feed pdfminer's grouping algorithm the same pypdfium2 char boxes laytext uses, "
         'isolating the comparison to grouping behavior only.',
     )
+    parser.add_argument(
+        '--deskew',
+        action='store_true',
+        help='Enable laytext skew correction (Params.deskew). Deliberately diverges from pdfminer on skewed pages.',
+    )
     args = parser.parse_args()
     pdfminer_analyze_fn = (
         analyze_pdf_pdfminer if args.pdfminer_chars == 'native' else analyze_pdf_pdfminer_pypdfium2chars
@@ -430,6 +435,7 @@ def main() -> int:
         word_margin=la_params.word_margin,
         column_gap_min=args.column_gap_min,
         row_gap_min=args.row_gap_min,
+        deskew=args.deskew,
     )
 
     pdfs = iter_corpus_pdfs()

@@ -125,6 +125,18 @@ pub fn find_gaps(intervals: &[(f64, f64)], min_gap: f64) -> Vec<(f64, f64)> {
         .collect()
 }
 
+/// Normalizes a merge decision's measured distance against the threshold
+/// that would have rejected it, into `[0.0, 1.0]`: `1.0` is a maximal
+/// margin (an obvious merge), values near `0.0` are a merge that barely
+/// cleared its threshold. A non-positive `threshold` (a degenerate
+/// zero-size element) returns `0.0` rather than dividing by zero.
+pub fn margin_ratio(dist: f64, threshold: f64) -> f64 {
+    if threshold <= 0.0 {
+        return 0.0;
+    }
+    (1.0 - dist / threshold).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Rect;
@@ -342,5 +354,31 @@ mod tests {
     #[test]
     fn find_gaps_nan_coordinate_does_not_panic() {
         let _ = super::find_gaps(&[(f64::NAN, 5.0), (0.0, 3.0)], 1.0);
+    }
+
+    #[test]
+    fn margin_ratio_zero_distance_is_maximal_confidence() {
+        assert_eq!(super::margin_ratio(0.0, 20.0), 1.0);
+    }
+
+    #[test]
+    fn margin_ratio_distance_near_threshold_is_near_zero() {
+        // 1.0 - 19.0/20.0 is 0.050000000000000044 in f64, not exactly 0.05.
+        assert!((super::margin_ratio(19.0, 20.0) - 0.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn margin_ratio_distance_at_threshold_is_zero() {
+        assert_eq!(super::margin_ratio(20.0, 20.0), 0.0);
+    }
+
+    #[test]
+    fn margin_ratio_distance_beyond_threshold_clamps_to_zero() {
+        assert_eq!(super::margin_ratio(25.0, 20.0), 0.0);
+    }
+
+    #[test]
+    fn margin_ratio_non_positive_threshold_returns_zero() {
+        assert_eq!(super::margin_ratio(5.0, 0.0), 0.0);
     }
 }

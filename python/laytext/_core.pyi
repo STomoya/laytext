@@ -30,13 +30,23 @@ class Line:
     bbox: Rect
     upright: bool
     chars: list[Char]
-    def __init__(self, bbox: Rect, upright: bool, chars: list[Char]) -> None: ...
+    confidence: float
+    def __init__(self, bbox: Rect, upright: bool, chars: list[Char], confidence: float = 1.0) -> None: ...
 
 class Block:
     bbox: Rect
     reading_order: int
     lines: list[Line]
-    def __init__(self, bbox: Rect, reading_order: int, lines: list[Line]) -> None: ...
+    tabular: bool
+    confidence: float
+    def __init__(
+        self,
+        bbox: Rect,
+        reading_order: int,
+        lines: list[Line],
+        tabular: bool = False,
+        confidence: float = 1.0,
+    ) -> None: ...
 
 class Page:
     width: float
@@ -64,6 +74,7 @@ class Params:
     # and accepted/returned here as a plain str across the FFI boundary.
     segmentation: str
     boxes_flow: float
+    deskew: bool
     def __init__(
         self,
         char_margin: float = 2.0,
@@ -74,10 +85,12 @@ class Params:
         row_gap_min: float | None = None,
         full_width_threshold: float = 0.9,
         detect_vertical: bool = False,
-        segmentation: str = "pdfminer",
+        segmentation: str = 'pdfminer',
         boxes_flow: float = 0.5,
+        deskew: bool = False,
     ) -> None: ...
 
+def estimate_page_skew(chars: list[Char]) -> float: ...
 def group_lines(chars: list[Char], params: Params) -> list[Line]: ...
 def group_lines_document(pages: list[list[Char]], params: Params) -> list[list[Line]]: ...
 def analyze_page(chars: list[Char], width: float, height: float, params: Params) -> Page: ...

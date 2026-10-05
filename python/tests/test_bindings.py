@@ -14,6 +14,7 @@ from laytext import (
     Strategy,
     analyze_document,
     analyze_page,
+    estimate_page_skew,
     group_lines,
     group_lines_document,
 )
@@ -43,6 +44,28 @@ def test_char_rejects_multi_character_text():
         Char(Rect(0.0, 0.0, 1.0, 1.0), 'ab')
 
 
+def test_line_default_confidence_is_one():
+    line = Line(Rect(0.0, 0.0, 1.0, 1.0), True, [])
+    assert line.confidence == 1.0
+
+
+def test_line_accepts_confidence():
+    line = Line(Rect(0.0, 0.0, 1.0, 1.0), True, [], confidence=0.5)
+    assert line.confidence == 0.5
+
+
+def test_block_default_tabular_and_confidence():
+    block = Block(Rect(0.0, 0.0, 1.0, 1.0), 0, [])
+    assert block.tabular is False
+    assert block.confidence == 1.0
+
+
+def test_block_accepts_tabular_and_confidence():
+    block = Block(Rect(0.0, 0.0, 1.0, 1.0), 0, [], tabular=True, confidence=0.3)
+    assert block.tabular is True
+    assert block.confidence == 0.3
+
+
 def test_params_defaults():
     p = Params()
     assert p.char_margin == 2.0
@@ -61,8 +84,22 @@ def test_params_accepts_xycut_strategy():
     assert p.boxes_flow == 0.25
 
 
+def test_params_deskew_defaults_off_and_accepts_kwarg():
+    assert Params().deskew is False
+    assert Params(deskew=True).deskew is True
+
+
 def test_strategy_variants_are_not_equal():
     assert Strategy.Pdfminer != Strategy.XyCut
+
+
+def test_estimate_page_skew_returns_float():
+    assert estimate_page_skew([]) == 0.0
+
+
+def test_estimate_page_skew_rejects_non_list():
+    with pytest.raises(TypeError):
+        estimate_page_skew('not a list')  # ty: ignore[invalid-argument-type]
 
 
 def test_group_lines_empty_input_returns_empty_list():
