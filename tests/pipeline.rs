@@ -1,7 +1,7 @@
 use _core::assemble::{assemble, assemble_region};
 use _core::blocks::group_blocks;
 use _core::geometry::Rect;
-use _core::params::Params;
+use _core::params::{Params, Strategy};
 use _core::segmentation::segment;
 use _core::types::{Char, Line};
 
@@ -72,6 +72,7 @@ fn assemble_orders_blocks_top_to_bottom_within_a_single_region() {
     let params = Params {
         column_gap_min: Some(1.0),
         row_gap_min: Some(50.0),
+        segmentation: Strategy::XyCut,
         ..Default::default()
     };
     let top = line(rect(0.0, 50.0, 6.0, 60.0));
@@ -92,6 +93,7 @@ fn assemble_orders_full_width_title_before_left_column_before_right_column() {
         column_gap_min: Some(10.0),
         row_gap_min: Some(10.0),
         full_width_threshold: 0.9,
+        segmentation: Strategy::XyCut,
         ..Default::default()
     };
     let (title, col_a, col_b) = multi_column_page();
@@ -109,4 +111,42 @@ fn assemble_orders_full_width_title_before_left_column_before_right_column() {
     assert_eq!(page.blocks[0].lines, vec![title]);
     assert_eq!(page.blocks[1].lines, vec![col_a]);
     assert_eq!(page.blocks[2].lines, vec![col_b]);
+}
+
+#[test]
+fn assemble_defaults_to_pdfminer_strategy_flat_clustering_no_region_tree() {
+    let col_a = line(rect(0.0, 0.0, 90.0, 100.0));
+    let col_b = line(rect(110.0, 0.0, 200.0, 100.0));
+
+    let page = assemble(
+        vec![col_b.clone(), col_a.clone()],
+        &Params::default(),
+        200.0,
+        100.0,
+    );
+
+    assert_eq!(page.blocks.len(), 2);
+    assert_eq!(page.blocks[0].lines, vec![col_a]);
+    assert_eq!(page.blocks[1].lines, vec![col_b]);
+}
+
+#[test]
+fn assemble_default_pdfminer_strategy_bridges_the_gutter_like_flat_block_merge_alone() {
+    let (title, col_a, col_b) = multi_column_page();
+
+    let page = assemble(
+        vec![title.clone(), col_a.clone(), col_b.clone()],
+        &Params::default(),
+        220.0,
+        110.0,
+    );
+
+    assert_eq!(
+        page.blocks.len(),
+        1,
+        "default Pdfminer strategy runs flat block-merge with no region \
+         scoping; Strategy::XyCut is required to keep the title and both \
+         columns separate (see \
+         assemble_orders_full_width_title_before_left_column_before_right_column)"
+    );
 }

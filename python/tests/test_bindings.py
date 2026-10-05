@@ -11,6 +11,7 @@ from laytext import (
     PageInput,
     Params,
     Rect,
+    Strategy,
     analyze_document,
     analyze_page,
     group_lines,
@@ -68,6 +69,22 @@ def test_params_defaults():
     p = Params()
     assert p.char_margin == 2.0
     assert p.column_gap_min is None
+
+
+def test_params_defaults_include_pdfminer_strategy():
+    p = Params()
+    assert p.segmentation == Strategy.Pdfminer
+    assert p.boxes_flow == 0.5
+
+
+def test_params_accepts_xycut_strategy():
+    p = Params(segmentation=Strategy.XyCut, boxes_flow=0.25)
+    assert p.segmentation == Strategy.XyCut
+    assert p.boxes_flow == 0.25
+
+
+def test_strategy_variants_are_not_equal():
+    assert Strategy.Pdfminer != Strategy.XyCut
 
 
 def test_group_lines_empty_input_returns_empty_list():

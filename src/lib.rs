@@ -3,6 +3,7 @@ pub mod blocks;
 pub mod geometry;
 pub mod lines;
 pub mod params;
+pub mod reading_order;
 pub mod segmentation;
 pub mod skew;
 pub mod types;

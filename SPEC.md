@@ -41,14 +41,37 @@ tight boxes, resolved completely by switching to `loose=True`.
 ## 3. Pipeline
 
 The public entry point operates on a whole document (all pages) in a single
-call — see §8 and §10 for why. Internally, the four stages below still run
-independently per page; pages share no state, so document-level batching is
-purely a call-boundary and scheduling optimization, not a change to the
-per-page algorithm.
+call — see §8 and §10 for why. Internally, the per-page pipeline below still
+runs independently per page; pages share no state, so document-level
+batching is purely a call-boundary and scheduling optimization, not a change
+to the per-page algorithm.
 
-Per page:
+Per page, char → line grouping always runs first:
 
-1. **Char → Line** — group input char boxes into text lines.
+1. **Char → Line** — group input char boxes into text lines. Essentially the
+   existing pdfminer `group_objects` logic ported directly.
+
+From there, `Params.segmentation` (a `Strategy`) selects one of two
+pipelines:
+
+**`Strategy.Pdfminer` (default).** No region tree.
+
+2. **Line → Block** — agglomeratively merge lines into blocks flat, over the
+   whole page's lines at once. This is pdfminer's `group_textlines` logic
+   (`blocks.rs`), unchanged from the single pipeline this replaces.
+3. **Reading-order assembly** — `order_blocks` (`reading_order.rs`), a
+   direct port of pdfminer's `group_textboxes`: nearest-first hierarchical
+   clustering of blocks by bounding-box distance (deferring a pair whose
+   merged bbox would swallow another still-active block, until closer pairs
+   are exhausted), then a pre-order walk of the resulting cluster tree,
+   each group's children sorted by a `boxes_flow`-weighted key, to assign a
+   `reading_order` index to every block. Multi-column separation falls out
+   of this clustering — a wide gutter keeps blocks on either side from
+   merging until late in the process — rather than from an upfront region
+   split.
+
+**`Strategy.XyCut` (opt-in).** The original always-on pipeline, unchanged:
+
 2. **Region segmentation** — recursively partition the page into rectangular
    regions via an X-Y cut, using line boxes as the segmentation input. A
    forced horizontal split around a full-width band (title/header/footer)
@@ -56,17 +79,14 @@ Per page:
    has the wider candidate whitespace gap at that recursion level wins the
    cut, so a page whose stacked bands are each also multi-column doesn't
    default to splitting into columns first. This is the multi-column-
-   handling stage.
+   handling stage under this strategy.
 3. **Line → Block** — within each leaf region independently, agglomeratively
-   merge lines into blocks. Merging never crosses a region boundary.
+   merge lines into blocks (same `group_textlines` logic as above). Merging
+   never crosses a region boundary.
 4. **Reading-order assembly** — walk the region tree in the order `segment`
    produced it (forced full-width bands top-to-bottom; a column split
    left-to-right; a row split top-to-bottom) to assign a `reading_order`
    index to every block.
-
-Stage 1 is essentially the existing pdfminer `group_objects` logic ported
-directly. Stages 2 and 4 are new. Stage 3 is pdfminer's `group_textboxes`
-logic, unchanged except for being scoped per-region instead of per-page.
 
 ## 4. Data model
 
@@ -124,13 +144,22 @@ pipeline may require `FontInfo` to be present — see §6.
 - **`lines`** — char → line grouping (port of pdfminer `group_objects` /
   line-overlap logic).
 - **`segmentation`** — recursive X-Y cut producing a region tree from line
-  boxes. Owns the full-width-line special case (title/header/footer
-  detection that forces a horizontal cut) and the column-vs-row tie-break
-  (whichever axis has the wider whitespace gap wins, see §3).
+  boxes, used only by `Strategy.XyCut`. Owns the full-width-line special
+  case (title/header/footer detection that forces a horizontal cut) and the
+  column-vs-row tie-break (whichever axis has the wider whitespace gap
+  wins, see §3).
 - **`blocks`** — line → block agglomerative merge (port of pdfminer
-  `group_textboxes`), operating on a single region's lines.
-- **`assemble`** — walks the region tree + per-region blocks to produce the
-  final `Page` with reading order assigned.
+  `group_textlines`), operating on a flat `Vec<Line>` with no region
+  concept; called once per page under `Strategy.Pdfminer` and once per leaf
+  region under `Strategy.XyCut`.
+- **`reading_order`** — `order_blocks`, a port of pdfminer's own
+  `group_textboxes`: distance-based hierarchical clustering of blocks into
+  reading order, driven by `boxes_flow`. Used by `Strategy.Pdfminer` (the
+  default) in place of a region tree.
+- **`assemble`** — branches on `Params.segmentation`: under `Strategy.
+  Pdfminer`, merges blocks flat and orders them via `reading_order`; under
+  `Strategy.XyCut`, walks the region tree + per-region blocks (as today).
+  Either path produces the final `Page` with reading order assigned.
 - **`params`** — the tunable-parameter struct (§7), analogous to pdfminer's
   `LAParams`.
 - **Rust `tests/`** (crate-root integration tests, `cargo test`) — owns all
@@ -182,20 +211,27 @@ extends pdfminer's `LAParams`:
 | `line_overlap` | min vertical overlap fraction to consider two chars same line |
 | `line_margin` | max gap to merge lines into the same block, within a region |
 | `word_margin` | inserts inferred word-space chars during line assembly |
-| `column_gap_min` | `Option<f64>` — min horizontal whitespace gap width to trigger a column (vertical) cut; `None` auto-derives the threshold from the region's median line height (see §12) |
-| `row_gap_min` | `Option<f64>` — min vertical whitespace gap to trigger a horizontal cut; same auto-derivation as above on `None` |
-| `full_width_threshold` | fraction of region width a line must span to be treated as a full-width element (forces horizontal cut) |
+| `column_gap_min` | `Strategy.XyCut` only. `Option<f64>` — min horizontal whitespace gap width to trigger a column (vertical) cut; `None` auto-derives the threshold from the region's median line height (see §12) |
+| `row_gap_min` | `Strategy.XyCut` only. `Option<f64>` — min vertical whitespace gap to trigger a horizontal cut; same auto-derivation as above on `None` |
+| `full_width_threshold` | `Strategy.XyCut` only. Fraction of region width a line must span to be treated as a full-width element (forces horizontal cut) |
 | `detect_vertical` | enable vertical (top-to-bottom) text handling |
+| `segmentation` | `Strategy` — `Pdfminer` (default) or `XyCut`; selects which pipeline in §3 runs |
+| `boxes_flow` | `Strategy.Pdfminer` only. `f64`, default `0.5` (matches pdfminer's own `LAParams.boxes_flow` default) — weights the reading-order sort key `order_blocks` uses when flattening its cluster tree; more negative favors top-to-bottom, more positive favors left-to-right |
 
-All parameters get sane defaults but are overridable per call, since gutter
-width and column layout vary a lot across real-world documents.
+`column_gap_min` / `row_gap_min` / `full_width_threshold` are ignored
+entirely under the default `Strategy.Pdfminer` — they only take effect when
+`segmentation=Strategy.XyCut`. All parameters get sane defaults but are
+overridable per call, since gutter width and column layout vary a lot
+across real-world documents.
 
 ## 8. Python interface (sketch)
 
 ```python
-from laytext import analyze_document, Params
+from laytext import analyze_document, Params, Strategy
 
-params = Params(column_gap_min=8.0)
+# column_gap_min only takes effect under Strategy.XyCut (§7); the default
+# Strategy.Pdfminer ignores it.
+params = Params(segmentation=Strategy.XyCut, column_gap_min=8.0)
 
 # one call for the whole document
 pages = analyze_document(
@@ -299,8 +335,8 @@ dependency on each other.
 - `analyze_document(pages, params)` takes the whole document's char data in
   one call and returns `Vec<Page>` (§8). Internally it releases the GIL for
   the duration of processing (`py.allow_threads`) and uses data parallelism
-  across pages (`rayon`'s `par_iter`), since the four-stage pipeline (§3) has
-  no cross-page state. This turns page count into a wall-clock win rather
+  across pages (`rayon`'s `par_iter`), since the per-page pipeline (§3, either
+  strategy) has no cross-page state. This turns page count into a wall-clock win rather
   than a per-call overhead multiplier.
 - Marshalling the input itself becomes the next bottleneck at scale: a
   Python list of per-char dict/object records means one Python object
@@ -350,13 +386,30 @@ dependency on each other.
 ## 12. Decisions
 
 - **Block-merge criterion**: port pdfminer's greedy nearest-neighbor
-  agglomerative merge (priority-queue over pairwise box distance) as-is,
-  scoped per-region (§3). The column-safety concern that motivates an
-  overlap-based alternative (e.g. PyMuPDF4LLM's style) is already handled
-  by region segmentation happening *before* block-merging runs, so a
-  distance-based merge cannot bridge a column gutter regardless. Revisit
-  only if real-data validation (§9) surfaces merge-quality issues (e.g.
-  paragraph/indentation handling) that region-scoping alone doesn't fix.
+  agglomerative merge (priority-queue over pairwise box distance) as-is
+  (`blocks.rs`, a port of pdfminer's `group_textlines`). Under
+  `Strategy.XyCut`, this runs scoped per-region (§3): the column-safety
+  concern that motivates an overlap-based alternative (e.g. PyMuPDF4LLM's
+  style) is already handled by region segmentation happening *before*
+  block-merging runs, so a distance-based merge cannot bridge a column
+  gutter regardless. Under the default `Strategy.Pdfminer`, block-merge
+  runs flat over the whole page with no prior region split; column safety
+  there is only incidental, coming from `blocks.rs`'s own horizontal/
+  vertical-overlap neighbor test rather than from a segmentation pass —
+  multi-column separation is instead the job of `order_blocks`'s
+  clustering (§3, §5) at the reading-order stage. Revisit only if
+  real-data validation (§9) surfaces merge-quality issues (e.g.
+  paragraph/indentation handling) that region-scoping (under `XyCut`) or
+  clustering (under `Pdfminer`) alone don't fix.
+- **`Strategy.Pdfminer` as the default, `Strategy.XyCut` as opt-in**: the
+  X-Y cut whitespace-gap region tree is laytext's own invention, with no
+  pdfminer equivalent, and showed weaknesses on real-corpus validation.
+  pdfminer.six's own `group_textboxes` — a distance-based hierarchical
+  clustering of text boxes, driven by `boxes_flow` — is a more mature,
+  widely-used mechanism for the same multi-column/reading-order problem,
+  and was previously unported. `order_blocks` (`reading_order.rs`) is a
+  direct port of it, made the default reading-order path; the X-Y cut
+  remains available as `Strategy.XyCut` for cases that need it.
 - **`column_gap_min` / `row_gap_min` tuning**: `Option<f64>` in `Params`
   (§7). An explicit value always overrides auto-detection. On `None`,
   `segment()` (`src/segmentation.rs`) derives the threshold from the
