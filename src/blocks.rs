@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::geometry::{Rect, margin_ratio, union_all};
 use crate::params::Params;
+use crate::skew::{SKEW_NOISE_FLOOR_DEGREES, shear_correct_bboxes};
 use crate::types::{Block, Line};
 
 fn find(parent: &mut [usize], x: usize) -> usize {
@@ -84,7 +85,10 @@ fn block_is_tabular(lines: &[Line], bbox: &Rect) -> bool {
 /// `line_margin`, then union-find them into connected components. Upright
 /// and non-upright lines never merge with each other, mirroring pdfminer's
 /// separate `LTTextLineHorizontal`/`LTTextLineVertical` neighbor search.
-pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
+/// Above the skew noise floor, neighbor decisions use each line's
+/// shear-corrected bbox (`skew_degrees`, as from `estimate_page_skew`);
+/// output geometry always stays the original, uncorrected bboxes.
+pub fn group_blocks(lines: Vec<Line>, params: &Params, skew_degrees: f64) -> Vec<Block> {
     let n = lines.len();
     if n == 0 {
         return Vec::new();
@@ -93,6 +97,14 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
     // ponytail: O(n^2) neighbor search per region; add a spatial index
     // (like pdfminer's Plane) if profiling shows this dominates for
     // regions with many lines.
+    let decision_bboxes: Vec<Rect> = if skew_degrees.abs() > SKEW_NOISE_FLOOR_DEGREES {
+        lines
+            .iter()
+            .map(|l| union_all(shear_correct_bboxes(&l.chars, skew_degrees)))
+            .collect()
+    } else {
+        lines.iter().map(|l| l.bbox).collect()
+    };
     let mut parent: Vec<usize> = (0..n).collect();
     // Every qualifying neighbor pair, with the margin ratio of the distance
     // that made it qualify — collected before roots settle, since union-find
@@ -103,8 +115,8 @@ pub fn group_blocks(lines: Vec<Line>, params: &Params) -> Vec<Block> {
             if i == j {
                 continue;
             }
-            let a = &lines[i].bbox;
-            let b = &lines[j].bbox;
+            let a = &decision_bboxes[i];
+            let b = &decision_bboxes[j];
             let neighbors = if lines[i].upright && lines[j].upright {
                 are_horizontal_neighbors(a, b, params)
             } else if !lines[i].upright && !lines[j].upright {

@@ -23,14 +23,14 @@ fn line(bbox: Rect, upright: bool) -> Line {
 #[test]
 fn empty_input_produces_no_blocks() {
     let params = Params::default();
-    assert_eq!(group_blocks(vec![], &params), vec![]);
+    assert_eq!(group_blocks(vec![], &params, 0.0), vec![]);
 }
 
 #[test]
 fn single_line_produces_single_block() {
     let params = Params::default();
     let a = line(rect(0.0, 0.0, 100.0, 10.0), true);
-    let blocks = group_blocks(vec![a.clone()], &params);
+    let blocks = group_blocks(vec![a.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].bbox, a.bbox);
     assert_eq!(blocks[0].lines, vec![a]);
@@ -43,7 +43,7 @@ fn stacked_left_aligned_lines_merge_into_one_block() {
     // line_margin(0.5)*height(10)=5.
     let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
     let b = line(rect(0.0, 8.0, 100.0, 18.0), true);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].bbox, rect(0.0, 8.0, 100.0, 30.0));
     assert_eq!(blocks[0].lines, vec![a, b]);
@@ -55,7 +55,7 @@ fn far_apart_lines_stay_separate_blocks() {
     // 200pt vertical gap: exceeds line_margin(0.5)*height(10)=5.
     let a = line(rect(0.0, 220.0, 100.0, 230.0), true);
     let b = line(rect(0.0, 8.0, 100.0, 18.0), true);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0].lines, vec![a]);
     assert_eq!(blocks[1].lines, vec![b]);
@@ -67,7 +67,7 @@ fn misaligned_close_lines_stay_separate_blocks() {
     // Close vertically but neither left-, right-, nor center-aligned.
     let a = line(rect(0.0, 20.0, 20.0, 30.0), true);
     let b = line(rect(80.0, 8.0, 100.0, 18.0), true);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0].lines, vec![a]);
     assert_eq!(blocks[1].lines, vec![b]);
@@ -78,7 +78,7 @@ fn right_aligned_close_lines_merge_into_one_block() {
     let params = Params::default();
     let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
     let b = line(rect(40.0, 8.0, 100.0, 18.0), true);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![a, b]);
 }
@@ -88,7 +88,7 @@ fn centrally_aligned_close_lines_merge_into_one_block() {
     let params = Params::default();
     let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
     let b = line(rect(20.0, 8.0, 80.0, 18.0), true);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![a, b]);
 }
@@ -100,7 +100,7 @@ fn different_height_lines_stay_separate_blocks() {
     // line_margin(0.5)*height(10)=5.
     let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
     let b = line(rect(0.0, -20.0, 100.0, 20.0), true);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 2);
 }
 
@@ -110,7 +110,7 @@ fn transitively_chained_lines_merge_into_one_block() {
     let a = line(rect(0.0, 40.0, 100.0, 50.0), true);
     let b = line(rect(0.0, 28.0, 100.0, 38.0), true);
     let c = line(rect(0.0, 16.0, 100.0, 26.0), true);
-    let blocks = group_blocks(vec![a.clone(), b.clone(), c.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone(), c.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![a, b, c]);
 }
@@ -120,7 +120,7 @@ fn upright_and_vertical_lines_never_merge() {
     let params = Params::default();
     let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
     let b = line(rect(0.0, 8.0, 100.0, 18.0), false);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0].lines, vec![a]);
     assert_eq!(blocks[1].lines, vec![b]);
@@ -133,7 +133,7 @@ fn side_by_side_lower_aligned_vertical_lines_merge_into_one_block() {
     // within line_margin(0.5)*width(10)=5.
     let a = line(rect(0.0, 0.0, 10.0, 100.0), false);
     let b = line(rect(12.0, 0.0, 22.0, 100.0), false);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].bbox, rect(0.0, 0.0, 22.0, 100.0));
     assert_eq!(blocks[0].lines, vec![a, b]);
@@ -147,7 +147,7 @@ fn side_by_side_upper_aligned_vertical_lines_merge_into_one_block() {
     // (d = line_margin(0.5) * width(10) = 5).
     let a = line(rect(0.0, 0.0, 10.0, 100.0), false);
     let b = line(rect(12.0, 20.0, 22.0, 100.0), false);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![a, b]);
 }
@@ -159,7 +159,7 @@ fn lines_within_a_block_are_sorted_top_to_bottom_regardless_of_input_order() {
     let bottom = line(rect(0.0, 8.0, 100.0, 18.0), true);
     // Passed in bottom-to-top order to prove group_blocks sorts by
     // position, not by input order.
-    let blocks = group_blocks(vec![bottom.clone(), top.clone()], &params);
+    let blocks = group_blocks(vec![bottom.clone(), top.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![top, bottom]);
 }
@@ -170,7 +170,7 @@ fn side_by_side_centrally_aligned_vertical_lines_merge_into_one_block() {
     // Same width (10), vertical centers match, but neither edge does.
     let a = line(rect(0.0, 0.0, 10.0, 100.0), false);
     let b = line(rect(12.0, 20.0, 22.0, 80.0), false);
-    let blocks = group_blocks(vec![a.clone(), b.clone()], &params);
+    let blocks = group_blocks(vec![a.clone(), b.clone()], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].lines, vec![a, b]);
 }
@@ -179,7 +179,7 @@ fn side_by_side_centrally_aligned_vertical_lines_merge_into_one_block() {
 fn single_line_block_has_confidence_one() {
     let params = Params::default();
     let a = line(rect(0.0, 0.0, 100.0, 10.0), true);
-    let blocks = group_blocks(vec![a], &params);
+    let blocks = group_blocks(vec![a], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].confidence, 1.0);
 }
@@ -191,7 +191,7 @@ fn block_confidence_is_high_for_closely_spaced_lines() {
     // ratio = 1.0 - 0.5/5.0 = 0.9.
     let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
     let b = line(rect(0.0, 9.5, 100.0, 19.5), true);
-    let blocks = group_blocks(vec![a, b], &params);
+    let blocks = group_blocks(vec![a, b], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert!((blocks[0].confidence - 0.9).abs() < 1e-9);
 }
@@ -203,7 +203,7 @@ fn block_confidence_is_low_when_lines_barely_clear_line_margin() {
     // ratio = 1.0 - 4.9/5.0 = 0.02.
     let a = line(rect(0.0, 20.0, 100.0, 30.0), true);
     let b = line(rect(0.0, 5.1, 100.0, 15.1), true);
-    let blocks = group_blocks(vec![a, b], &params);
+    let blocks = group_blocks(vec![a, b], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert!((blocks[0].confidence - 0.02).abs() < 1e-9);
 }
@@ -217,7 +217,7 @@ fn block_confidence_reflects_the_weakest_merge_in_a_multi_line_block() {
     let a = line(rect(0.0, 40.0, 100.0, 50.0), true);
     let b = line(rect(0.0, 29.5, 100.0, 39.5), true);
     let c = line(rect(0.0, 14.6, 100.0, 24.6), true);
-    let blocks = group_blocks(vec![a, b, c], &params);
+    let blocks = group_blocks(vec![a, b, c], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert!((blocks[0].confidence - 0.02).abs() < 1e-9);
 }
@@ -233,7 +233,7 @@ fn tabular_block_with_a_repeated_internal_edge_is_flagged_tabular() {
     let top = line(rect(0.0, 40.0, 100.0, 50.0), true);
     let mid = line(rect(20.0, 28.0, 80.0, 38.0), true);
     let bottom = line(rect(20.0, 16.0, 80.0, 26.0), true);
-    let blocks = group_blocks(vec![top, mid, bottom], &params);
+    let blocks = group_blocks(vec![top, mid, bottom], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert!(blocks[0].tabular);
 }
@@ -247,7 +247,7 @@ fn ordinary_ragged_right_paragraph_is_not_tabular() {
     let a = line(rect(0.0, 40.0, 100.0, 50.0), true);
     let b = line(rect(0.0, 28.0, 70.0, 38.0), true);
     let c = line(rect(0.0, 16.0, 90.0, 26.0), true);
-    let blocks = group_blocks(vec![a, b, c], &params);
+    let blocks = group_blocks(vec![a, b, c], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert!(!blocks[0].tabular);
 }
@@ -263,7 +263,7 @@ fn a_two_line_block_is_never_tabular_regardless_of_alignment() {
     // forces false here.
     let a = line(rect(20.0, 0.0, 40.0, 10.0), false);
     let b = line(rect(0.0, 0.0, 20.0, 10.0), false);
-    let blocks = group_blocks(vec![a, b], &params);
+    let blocks = group_blocks(vec![a, b], &params, 0.0);
     assert_eq!(blocks.len(), 1);
     assert!(!blocks[0].tabular);
 }

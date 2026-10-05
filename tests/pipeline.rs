@@ -1,6 +1,7 @@
 use _core::assemble::{assemble, assemble_region};
 use _core::blocks::group_blocks;
 use _core::geometry::Rect;
+use _core::lines::group_lines;
 use _core::params::{Params, Strategy};
 use _core::segmentation::segment;
 use _core::types::{Char, Line};
@@ -37,7 +38,7 @@ fn multi_column_page() -> (Line, Line, Line) {
 fn naive_line_to_block_merge_bridges_the_gutter_without_region_scoping() {
     let params = Params::default();
     let (title, col_a, col_b) = multi_column_page();
-    let blocks = group_blocks(vec![title, col_a, col_b], &params);
+    let blocks = group_blocks(vec![title, col_a, col_b], &params, 0.0);
     assert_eq!(
         blocks.len(),
         1,
@@ -56,7 +57,7 @@ fn region_scoped_merge_keeps_the_title_and_both_columns_separate() {
     };
     let (title, col_a, col_b) = multi_column_page();
     let region = segment(vec![title.clone(), col_a.clone(), col_b.clone()], &params);
-    let blocks = assemble_region(region, &params);
+    let blocks = assemble_region(region, &params, 0.0);
 
     assert_eq!(blocks.len(), 3, "no cross-gutter or cross-title merge");
     for expected in [vec![title], vec![col_a], vec![col_b]] {
@@ -149,4 +150,64 @@ fn assemble_default_pdfminer_strategy_bridges_the_gutter_like_flat_block_merge_a
          columns separate (see \
          assemble_orders_full_width_title_before_left_column_before_right_column)"
     );
+}
+
+/// Three 2deg-tilted dense lines (40 6x10 chars at a 7pt pitch, ~9.7pt
+/// rise across each) with a 20pt baseline step. Deskewed, each line is
+/// 10pt tall with a 10pt gap, over line_margin * height (5pt): three
+/// separate paragraphs. The raw axis-aligned line bboxes are ~19.7pt tall,
+/// shrinking the gap to ~0.3pt and inflating the threshold to ~9.9pt, so
+/// merging on raw geometry collapses them into one block.
+fn skewed_paragraphs() -> Vec<Char> {
+    let slope = 2.0_f64.to_radians().tan();
+    [540.0, 520.0, 500.0]
+        .into_iter()
+        .flat_map(|baseline| {
+            (0..40).map(move |i| {
+                let x0 = (i as f64) * 7.0;
+                let y0 = baseline + (x0 + 3.0) * slope;
+                Char {
+                    bbox: rect(x0, y0, x0 + 6.0, y0 + 10.0),
+                    text: 'x',
+                    font: None,
+                }
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn skewed_paragraph_gap_keeps_lines_in_separate_blocks() {
+    let params = Params {
+        deskew: true,
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    let lines = group_lines(skewed_paragraphs(), &params);
+    assert_eq!(lines.len(), 3);
+    let raw_bboxes: Vec<Rect> = lines.iter().map(|l| l.bbox).collect();
+
+    let page = assemble(lines, &params, 300.0, 560.0);
+
+    assert_eq!(page.blocks.len(), 3);
+    let mut out_bboxes: Vec<Rect> = page.blocks.iter().map(|b| b.bbox).collect();
+    out_bboxes.sort_by(|a, b| b.y1.total_cmp(&a.y1));
+    assert_eq!(
+        out_bboxes, raw_bboxes,
+        "output geometry must stay unsheared"
+    );
+}
+
+#[test]
+fn skewed_block_merge_matches_pdfminer_when_deskew_is_off() {
+    let params = Params {
+        word_margin: 0.0,
+        ..Params::default()
+    };
+    let lines = group_lines(skewed_paragraphs(), &params);
+    assert_eq!(lines.len(), 3);
+
+    let page = assemble(lines, &params, 300.0, 560.0);
+
+    assert_eq!(page.blocks.len(), 1);
 }
