@@ -1,27 +1,28 @@
 use crate::geometry::Rect;
 use crate::types::Char;
 
-/// Below this many chars, a band's angle isn't fit at all — mirrors the
-/// spike script's own `MIN_CHARS_FOR_FIT` threshold.
-const MIN_CHARS_FOR_BAND_FIT: usize = 4;
+/// A run needs at least this many chars to be fit at all.
+const MIN_CHARS_PER_RUN: usize = 6;
 
-/// Below this many usable band angles, the page has too little text to
-/// estimate confidently — return `0.0` (no correction) rather than guess
-/// from noise.
-const MIN_BANDS_FOR_PAGE_ESTIMATE: usize = 3;
+/// A run must span at least this many median char heights horizontally.
+/// Shorter runs (table cells, numbers) are dominated by per-glyph box
+/// differences rather than page tilt: on the real corpus, rows of 8-char
+/// cells drove a flat page's estimate to ~2deg until this was raised.
+const MIN_RUN_SPAN_HEIGHTS: f64 = 10.0;
+
+/// Below this many usable runs, the page has too little text to estimate
+/// confidently — return `0.0` (no correction) rather than guess from noise.
+const MIN_RUNS_FOR_PAGE_ESTIMATE: usize = 3;
+
+/// Runs steeper than this are rotated text (axis labels, stamps), not scan
+/// skew, and are left out of the page estimate.
+const MAX_RUN_ANGLE_DEGREES: f64 = 15.0;
 
 fn median_char_height(chars: &[Char]) -> f64 {
     if chars.is_empty() {
         return 0.0;
     }
-    let mut heights: Vec<f64> = chars.iter().map(|c| c.bbox.height()).collect();
-    heights.sort_by(f64::total_cmp);
-    let mid = heights.len() / 2;
-    if heights.len().is_multiple_of(2) {
-        (heights[mid - 1] + heights[mid]) / 2.0
-    } else {
-        heights[mid]
-    }
+    median(chars.iter().map(|c| c.bbox.height()).collect())
 }
 
 /// Least-squares slope of `y` vs `x` for `points`, or `None` if `x` has no
@@ -40,40 +41,45 @@ fn fit_slope(points: &[(f64, f64)]) -> Option<f64> {
     slope.is_finite().then_some(slope)
 }
 
-/// Greedily buckets `chars` (sorted top-to-bottom by `y0`) into bands using
-/// a permissive y-window derived from the page's median char height, then
-/// fits each large-enough band's angle by least squares on bottom-center
-/// `y` vs `x`. Deliberately wider than `halign`'s own overlap tolerance —
-/// the goal here is "roughly the same visual line" for estimation, not a
-/// precise grouping decision.
-fn band_angles(chars: &[Char]) -> Vec<f64> {
-    if chars.is_empty() {
-        return Vec::new();
-    }
-    let window = 1.5 * median_char_height(chars);
-    let mut sorted: Vec<&Char> = chars.iter().collect();
-    sorted.sort_by(|a, b| b.bbox.y0.total_cmp(&a.bbox.y0));
+/// Does `next` continue `prev`'s visual line? Relies on input reading
+/// order (as `group_lines` already does): consecutive chars that advance
+/// left-to-right with a small horizontal gap and a small vertical step are
+/// on the same line. Line breaks, column jumps and vertical text all fail
+/// the test, so a run never mixes lines — unlike bucketing by y, which
+/// chains adjacent lines whenever line pitch is under the bucket window.
+fn continues_run(prev: &Rect, next: &Rect, h: f64) -> bool {
+    let gap = next.x0 - prev.x1;
+    next.x0 + next.x1 > prev.x0 + prev.x1
+        && gap >= -0.5 * h
+        && gap <= 1.5 * h
+        && (next.y0 - prev.y0).abs() <= 0.5 * h
+}
 
-    let mut bands: Vec<Vec<&Char>> = Vec::new();
-    for c in sorted {
-        match bands.last_mut() {
-            Some(band) if (band.last().unwrap().bbox.y0 - c.bbox.y0).abs() <= window => {
-                band.push(c);
-            }
-            _ => bands.push(vec![c]),
+/// Splits `chars` into same-line runs (see [`continues_run`]) and fits each
+/// long-enough run's angle by least squares on bottom-center `y` vs `x`.
+fn run_angles(chars: &[Char]) -> Vec<f64> {
+    let h = median_char_height(chars);
+    let mut runs: Vec<&[Char]> = Vec::new();
+    let mut start = 0;
+    for i in 1..=chars.len() {
+        if i == chars.len() || !continues_run(&chars[i - 1].bbox, &chars[i].bbox, h) {
+            runs.push(&chars[start..i]);
+            start = i;
         }
     }
-
-    bands
-        .into_iter()
-        .filter(|band| band.len() >= MIN_CHARS_FOR_BAND_FIT)
-        .filter_map(|band| {
-            let points: Vec<(f64, f64)> = band
+    runs.into_iter()
+        .filter(|run| {
+            run.len() >= MIN_CHARS_PER_RUN
+                && run[run.len() - 1].bbox.x1 - run[0].bbox.x0 >= MIN_RUN_SPAN_HEIGHTS * h
+        })
+        .filter_map(|run| {
+            let points: Vec<(f64, f64)> = run
                 .iter()
                 .map(|c| ((c.bbox.x0 + c.bbox.x1) / 2.0, c.bbox.y0))
                 .collect();
             fit_slope(&points).map(|slope| slope.atan().to_degrees())
         })
+        .filter(|angle| angle.abs() <= MAX_RUN_ANGLE_DEGREES)
         .collect()
 }
 
@@ -118,13 +124,13 @@ pub(crate) fn shear_correct_bboxes(chars: &[Char], angle_degrees: f64) -> Vec<Re
 }
 
 /// Estimates a page's dominant skew angle in degrees (`0.0` if there's
-/// too little text to estimate confidently), via a permissive band
-/// bucketing + per-band least-squares fit, aggregated by median (robust
-/// to the small number of extreme-outlier bands real scans exhibit —
-/// formulas, watermarks, short fragments). Geometry-only: no font metrics.
+/// too little text to estimate confidently), via a per-run least-squares
+/// fit over same-line runs of consecutive chars, aggregated by median
+/// (robust to outlier runs — formulas, watermarks, rotated labels).
+/// Geometry-only: no font metrics. `chars` must be in reading order.
 pub fn estimate_page_skew(chars: &[Char]) -> f64 {
-    let angles = band_angles(chars);
-    if angles.len() < MIN_BANDS_FOR_PAGE_ESTIMATE {
+    let angles = run_angles(chars);
+    if angles.len() < MIN_RUNS_FOR_PAGE_ESTIMATE {
         return 0.0;
     }
     median(angles)

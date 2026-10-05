@@ -14,6 +14,7 @@ from laytext import (
     Strategy,
     analyze_document,
     analyze_page,
+    estimate_page_skew,
     group_lines,
     group_lines_document,
 )
@@ -90,6 +91,15 @@ def test_params_deskew_defaults_off_and_accepts_kwarg():
 
 def test_strategy_variants_are_not_equal():
     assert Strategy.Pdfminer != Strategy.XyCut
+
+
+def test_estimate_page_skew_returns_float():
+    assert estimate_page_skew([]) == 0.0
+
+
+def test_estimate_page_skew_rejects_non_list():
+    with pytest.raises(TypeError):
+        estimate_page_skew('not a list')  # ty: ignore[invalid-argument-type]
 
 
 def test_group_lines_empty_input_returns_empty_list():

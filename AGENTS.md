@@ -70,6 +70,9 @@ laytext/
                            # DPI-tolerance checks and perf benchmark
     visualize_page.py     # renders a page's detected boxes over the PDF
                            # for manual visual inspection
+    skew_estimator.py     # estimate_page_skew accuracy on corpus pages
+                           # rotated by known angles, plus false-skew
+                           # check on unmodified pages
 ```
 
 ## Commands
@@ -84,6 +87,8 @@ laytext/
 - Validation (pdfminer comparison + DPI tolerance + perf, real-data corpus,
   release-blocking, not part of the regular test suite):
   `uv run python validation/compare_pdfminer.py`
+- Skew-estimator validation (real-data corpus, run when touching
+  `src/skew.rs`): `uv run python validation/skew_estimator.py`
 - Lint / typecheck: `cargo clippy -- -D warnings` and `uvx ty check python/`
 - Format: `cargo fmt` and `uvx ruff check --fix python/ && uvx ruff format python/`
 - Coverage (Rust, target 100%): `cargo llvm-cov --workspace --fail-under-lines 100`
